@@ -62,8 +62,8 @@ def parse_args_paired_testing(input_args=None):
 
     parser.add_argument("--align_method", type=str, default="wavelet")
     
-    parser.add_argument("--pos_prompt", type=str, default="A high-resolution, 8K, ultra-realistic image with sharp focus, vibrant colors, and natural lighting.")
-    parser.add_argument("--neg_prompt", type=str, default="oil painting, cartoon, blur, dirty, messy, low quality, deformation, low resolution, oversmooth")
+    parser.add_argument("--pos_prompt", type=str, default="A high-resolution thermal infrared image with sharp edges, clear structure, and clean details.")
+    parser.add_argument("--neg_prompt", type=str, default=None)
 
     # training details
     parser.add_argument("--output_dir", type=str, default='output/')

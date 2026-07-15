@@ -60,8 +60,8 @@ def parse_args_paired_training(input_args=None):
     parser.add_argument("--lora_rank_unet", default=32, type=int)
     parser.add_argument("--lora_rank_vae", default=16, type=int)
     parser.add_argument("--neg_prob", default=0.05, type=float)
-    parser.add_argument("--pos_prompt", type=str, default="A high-resolution, 8K, ultra-realistic image with sharp focus, vibrant colors, and natural lighting.")
-    parser.add_argument("--neg_prompt", type=str, default="oil painting, cartoon, blur, dirty, messy, low quality, deformation, low resolution, oversmooth")
+    parser.add_argument("--pos_prompt", type=str, default="A high-resolution thermal infrared image with sharp edges, clear structure, and clean details.")
+    parser.add_argument("--neg_prompt", type=str, default=None)
 
     # training details
     parser.add_argument("--output_dir", required=True)
@@ -352,6 +352,81 @@ class PairedDataset(data.Dataset):
     def __len__(self):
         return len(self.paths)
 
+
+
+IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+
+
+def _list_images(root):
+    root = Path(root)
+    return sorted([str(x) for x in root.rglob("*") if x.suffix.lower() in IMG_EXTENSIONS])
+
+
+class ThermalPairDataset(data.Dataset):
+    """Read paired LR thermal and HR thermal images for x8 infrared SR."""
+
+    def __init__(self, opt, sf=8):
+        super().__init__()
+        self.opt = opt
+        self.sf = int(sf)
+        self.lr_root = Path(opt["lr_path"])
+        self.hr_root = Path(opt["hr_path"])
+        self.crop_size = int(opt.get("crop_size", 512))
+        self.use_hflip = bool(opt.get("use_hflip", True))
+        self.use_rot = bool(opt.get("use_rot", False))
+
+        hr_by_name = {Path(p).name: p for p in _list_images(self.hr_root)}
+        self.pairs = []
+        for lr_path in _list_images(self.lr_root):
+            name = Path(lr_path).name
+            if name in hr_by_name:
+                self.pairs.append((lr_path, hr_by_name[name]))
+        if not self.pairs:
+            raise ValueError(f"No paired thermal images found in {self.lr_root} and {self.hr_root}")
+
+    def __getitem__(self, index):
+        lr_path, hr_path = self.pairs[index]
+        img_lr = np.array(Image.open(lr_path).convert("RGB")).astype(np.float32) / 255.0
+        img_hr = np.array(Image.open(hr_path).convert("RGB")).astype(np.float32) / 255.0
+
+        h_hr, w_hr = img_hr.shape[:2]
+        crop_hr = min(self.crop_size, h_hr, w_hr)
+        crop_hr = (crop_hr // self.sf) * self.sf
+        crop_lr = crop_hr // self.sf
+
+        if crop_hr > 0 and (h_hr > crop_hr or w_hr > crop_hr):
+            h_lr, w_lr = img_lr.shape[:2]
+            max_top_lr = min(h_lr - crop_lr, (h_hr - crop_hr) // self.sf)
+            max_left_lr = min(w_lr - crop_lr, (w_hr - crop_hr) // self.sf)
+            top_lr = random.randint(0, max(0, max_top_lr))
+            left_lr = random.randint(0, max(0, max_left_lr))
+            top_hr = top_lr * self.sf
+            left_hr = left_lr * self.sf
+            img_lr = img_lr[top_lr:top_lr + crop_lr, left_lr:left_lr + crop_lr, :]
+            img_hr = img_hr[top_hr:top_hr + crop_hr, left_hr:left_hr + crop_hr, :]
+
+        if self.use_hflip and random.random() < 0.5:
+            img_lr = np.flip(img_lr, axis=1).copy()
+            img_hr = np.flip(img_hr, axis=1).copy()
+        if self.use_rot and random.random() < 0.5:
+            img_lr = np.flip(img_lr, axis=0).copy()
+            img_hr = np.flip(img_hr, axis=0).copy()
+
+        img_lr, img_hr = img2tensor([img_lr, img_hr], bgr2rgb=False, float32=True)
+        return {"lr": img_lr, "gt": img_hr, "lr_path": lr_path, "gt_path": hr_path}
+
+    def __len__(self):
+        return len(self.pairs)
+
+
+def paired_thermal_proc(batch, device):
+    im_lr = batch["lr"].to(device, memory_format=torch.contiguous_format).float()
+    im_gt = batch["gt"].to(device, memory_format=torch.contiguous_format).float()
+    ori_lr = im_lr
+    im_lr = F.interpolate(im_lr, size=im_gt.shape[-2:], mode="bicubic", align_corners=False)
+    im_lr = torch.clamp(im_lr * 2 - 1.0, -1.0, 1.0)
+    im_gt = im_gt * 2 - 1.0
+    return im_lr.contiguous(), im_gt.contiguous(), ori_lr
 
 def randn_cropinput(lq, gt, base_size=[64, 128, 256, 512]):
     cur_size_h = random.choice(base_size)

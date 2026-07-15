@@ -25,7 +25,6 @@ import utils.misc as misc
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.optimization import get_scheduler
 
-from de_net import DEResNet
 from s3diff_tile import S3Diff
 from my_utils.testing_utils import parse_args_paired_testing, PlainDataset, lr_proc
 from utils.util_image import ImageSpliterTh
@@ -133,11 +132,6 @@ def main(args):
     net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args)
     net_sr.set_eval()
 
-    net_de = DEResNet(num_in_ch=3, num_degradation=2)
-    net_de.load_model(args.de_net_path)
-    net_de = net_de.cuda()
-    net_de.eval()
-
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
             net_sr.unet.enable_xformers_memory_efficient_attention()
@@ -154,7 +148,7 @@ def main(args):
     dl_val = torch.utils.data.DataLoader(dataset_val, batch_size=1, shuffle=False, num_workers=0)
 
     # Prepare everything with our `accelerator`.
-    net_sr, net_de = accelerator.prepare(net_sr, net_de)
+    net_sr = accelerator.prepare(net_sr)
 
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
@@ -164,7 +158,6 @@ def main(args):
 
     # Move al networksr to device and cast to weight_dtype
     net_sr.to(accelerator.device, dtype=weight_dtype)
-    net_de.to(accelerator.device, dtype=weight_dtype)
       
     offset = args.padding_offset
     for step, batch_val in enumerate(dl_val):
@@ -195,10 +188,9 @@ def main(args):
         B = im_lr_resize.size(0)
         with torch.no_grad():
             # forward pass
-            deg_score = net_de(im_lr)
             pos_tag_prompt = [args.pos_prompt for _ in range(B)]
-            neg_tag_prompt = [args.neg_prompt for _ in range(B)]
-            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, deg_score, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt)
+            neg_tag_prompt = [args.neg_prompt for _ in range(B)] if args.neg_prompt is not None else None
+            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt)
             x_tgt_pred = x_tgt_pred[:, :, :resize_h, :resize_w]
             out_img = (x_tgt_pred * 0.5 + 0.5).cpu().detach()
 

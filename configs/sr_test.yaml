@@ -1,6 +1,6 @@
-sf: 4
+sf: 8
 
 validation:
-  lr_path: path_to_LR_image_folder
+  lr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/lr_thermal
   io_backend:
     type: disk

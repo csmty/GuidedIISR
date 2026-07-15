@@ -64,6 +64,13 @@ def parse_args_paired_testing(input_args=None):
     
     parser.add_argument("--pos_prompt", type=str, default="A high-resolution thermal infrared image with sharp edges, clear structure, and clean details.")
     parser.add_argument("--neg_prompt", type=str, default=None)
+    parser.add_argument("--disable_so_lrrb", action="store_true", help="Disable the SO-LRRB latent residual refinement module.")
+    parser.add_argument("--so_lrrb_hidden_channels", type=int, default=64)
+    parser.add_argument("--so_lrrb_growth_channels", type=int, default=32)
+    parser.add_argument("--so_lrrb_num_blocks", type=int, default=3)
+    parser.add_argument("--so_lrrb_num_layers_per_block", type=int, default=3)
+    parser.add_argument("--so_lrrb_residual_scale", type=float, default=0.2)
+    parser.add_argument("--so_lrrb_kappa", type=float, default=0.2)
 
     # training details
     parser.add_argument("--output_dir", type=str, default='output/')

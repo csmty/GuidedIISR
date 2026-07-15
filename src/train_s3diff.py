@@ -57,6 +57,13 @@ def main(args):
         lora_rank_vae=args.lora_rank_vae,
         sd_path=sd_path,
         pretrained_path=args.pretrained_path,
+        enable_so_lrrb=not args.disable_so_lrrb,
+        so_lrrb_hidden_channels=args.so_lrrb_hidden_channels,
+        so_lrrb_growth_channels=args.so_lrrb_growth_channels,
+        so_lrrb_num_blocks=args.so_lrrb_num_blocks,
+        so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block,
+        so_lrrb_residual_scale=args.so_lrrb_residual_scale,
+        so_lrrb_kappa=args.so_lrrb_kappa,
     )
     net_sr.set_train()
 
@@ -101,6 +108,8 @@ def main(args):
         if "lora" in n:
             assert p.requires_grad
             layers_to_opt.append(p)
+    if net_sr.so_lrrb is not None:
+        layers_to_opt += list(net_sr.so_lrrb.parameters())
 
     dataset_train = ThermalPairDataset(config.train, sf=config.sf)
     dl_train = torch.utils.data.DataLoader(

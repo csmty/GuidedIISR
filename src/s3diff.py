@@ -58,7 +58,7 @@ class S3Diff(torch.nn.Module):
         unet.to("cuda")
         vae.to("cuda")
         self.unet, self.vae = unet, vae
-        self.timesteps = torch.tensor([999], device="cuda").long()
+        self.timesteps = torch.tensor([50], device="cuda").long()
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
@@ -91,7 +91,7 @@ class S3Diff(torch.nn.Module):
         caption_enc = self.text_encoder(caption_tokens)[0]
         encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
         model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc).sample
-        x_denoised = self.sched.step(model_pred, self.timesteps, encoded_control, return_dict=True).prev_sample
+        x_denoised = encoded_control - model_pred
         return self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample.clamp(-1, 1)
 
     def save_model(self, outf):

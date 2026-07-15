@@ -60,7 +60,7 @@ class S3Diff(torch.nn.Module):
         unet.to("cuda")
         vae.to("cuda")
         self.unet, self.vae = unet, vae
-        self.timesteps = torch.tensor([999], device="cuda").long()
+        self.timesteps = torch.tensor([50], device="cuda").long()
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
@@ -93,7 +93,7 @@ class S3Diff(torch.nn.Module):
             model_pred = neg_model_pred + self.guidance_scale * (pos_model_pred - neg_model_pred)
         else:
             model_pred = pos_model_pred
-        x_denoised = self.sched.step(model_pred, self.timesteps, lq_latent, return_dict=True).prev_sample
+        x_denoised = lq_latent - model_pred
         return self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample.clamp(-1, 1)
 
     def _encode_prompt(self, prompt):

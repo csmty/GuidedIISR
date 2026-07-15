@@ -69,6 +69,9 @@ def parse_args_paired_training(input_args=None):
     parser.add_argument("--so_lrrb_num_layers_per_block", type=int, default=3)
     parser.add_argument("--so_lrrb_residual_scale", type=float, default=0.2)
     parser.add_argument("--so_lrrb_kappa", type=float, default=0.2)
+    parser.add_argument("--disable_rgb_ref", action="store_true", help="Disable frozen visible-reference SV-CM-AICG injection.")
+    parser.add_argument("--rgb_ref_num_heads", type=int, default=1)
+    parser.add_argument("--rgb_ref_num_summary_tokens", type=int, default=4)
 
     # training details
     parser.add_argument("--output_dir", required=True)
@@ -378,23 +381,27 @@ class ThermalPairDataset(data.Dataset):
         self.sf = int(sf)
         self.lr_root = Path(opt["lr_path"])
         self.hr_root = Path(opt["hr_path"])
+        self.visible_root = Path(opt["visible_path"]) if "visible_path" in opt else None
         self.crop_size = int(opt.get("crop_size", 512))
         self.use_hflip = bool(opt.get("use_hflip", True))
         self.use_rot = bool(opt.get("use_rot", False))
 
         hr_by_name = {Path(p).name: p for p in _list_images(self.hr_root)}
+        visible_by_name = {Path(p).name: p for p in _list_images(self.visible_root)} if self.visible_root is not None else {}
         self.pairs = []
         for lr_path in _list_images(self.lr_root):
             name = Path(lr_path).name
             if name in hr_by_name:
-                self.pairs.append((lr_path, hr_by_name[name]))
+                visible_path = visible_by_name.get(name)
+                self.pairs.append((lr_path, hr_by_name[name], visible_path))
         if not self.pairs:
             raise ValueError(f"No paired thermal images found in {self.lr_root} and {self.hr_root}")
 
     def __getitem__(self, index):
-        lr_path, hr_path = self.pairs[index]
+        lr_path, hr_path, visible_path = self.pairs[index]
         img_lr = np.array(Image.open(lr_path).convert("RGB")).astype(np.float32) / 255.0
         img_hr = np.array(Image.open(hr_path).convert("RGB")).astype(np.float32) / 255.0
+        img_visible = np.array(Image.open(visible_path).convert("RGB")).astype(np.float32) / 255.0 if visible_path is not None else None
 
         h_hr, w_hr = img_hr.shape[:2]
         crop_hr = min(self.crop_size, h_hr, w_hr)
@@ -411,14 +418,23 @@ class ThermalPairDataset(data.Dataset):
             left_hr = left_lr * self.sf
             img_lr = img_lr[top_lr:top_lr + crop_lr, left_lr:left_lr + crop_lr, :]
             img_hr = img_hr[top_hr:top_hr + crop_hr, left_hr:left_hr + crop_hr, :]
+            if img_visible is not None:
+                img_visible = img_visible[top_hr:top_hr + crop_hr, left_hr:left_hr + crop_hr, :]
 
         if self.use_hflip and random.random() < 0.5:
             img_lr = np.flip(img_lr, axis=1).copy()
             img_hr = np.flip(img_hr, axis=1).copy()
+            if img_visible is not None:
+                img_visible = np.flip(img_visible, axis=1).copy()
         if self.use_rot and random.random() < 0.5:
             img_lr = np.flip(img_lr, axis=0).copy()
             img_hr = np.flip(img_hr, axis=0).copy()
+            if img_visible is not None:
+                img_visible = np.flip(img_visible, axis=0).copy()
 
+        if img_visible is not None:
+            img_lr, img_hr, img_visible = img2tensor([img_lr, img_hr, img_visible], bgr2rgb=False, float32=True)
+            return {"lr": img_lr, "gt": img_hr, "visible": img_visible, "lr_path": lr_path, "gt_path": hr_path, "visible_path": visible_path}
         img_lr, img_hr = img2tensor([img_lr, img_hr], bgr2rgb=False, float32=True)
         return {"lr": img_lr, "gt": img_hr, "lr_path": lr_path, "gt_path": hr_path}
 
@@ -429,11 +445,14 @@ class ThermalPairDataset(data.Dataset):
 def paired_thermal_proc(batch, device):
     im_lr = batch["lr"].to(device, memory_format=torch.contiguous_format).float()
     im_gt = batch["gt"].to(device, memory_format=torch.contiguous_format).float()
+    im_visible = batch.get("visible")
+    if im_visible is not None:
+        im_visible = im_visible.to(device, memory_format=torch.contiguous_format).float() * 2 - 1.0
     ori_lr = im_lr
     im_lr = F.interpolate(im_lr, size=im_gt.shape[-2:], mode="bicubic", align_corners=False)
     im_lr = torch.clamp(im_lr * 2 - 1.0, -1.0, 1.0)
     im_gt = im_gt * 2 - 1.0
-    return im_lr.contiguous(), im_gt.contiguous(), ori_lr
+    return im_lr.contiguous(), im_gt.contiguous(), ori_lr, im_visible
 
 def randn_cropinput(lq, gt, base_size=[64, 128, 256, 512]):
     cur_size_h = random.choice(base_size)

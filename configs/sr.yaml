@@ -3,6 +3,7 @@ sf: 8
 train:
   lr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/train/lr_thermal
   hr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/train/hr_thermal
+  visible_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/train/hr_visible
   crop_size: 512
   use_hflip: True
   use_rot: False
@@ -10,6 +11,7 @@ train:
 validation:
   lr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/lr_thermal
   hr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/hr_thermal
+  visible_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/hr_visible
   crop_size: 512
   use_hflip: False
   use_rot: False

@@ -64,12 +64,16 @@ def main(args):
         so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block,
         so_lrrb_residual_scale=args.so_lrrb_residual_scale,
         so_lrrb_kappa=args.so_lrrb_kappa,
+        enable_rgb_ref=not args.disable_rgb_ref,
+        rgb_ref_num_heads=args.rgb_ref_num_heads,
+        rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens,
     )
     net_sr.set_train()
 
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
             net_sr.unet.enable_xformers_memory_efficient_attention()
+            net_sr.ref_unet.enable_xformers_memory_efficient_attention()
         else:
             raise ValueError("xformers is not available, please install it by running `pip install xformers`")
 
@@ -110,6 +114,8 @@ def main(args):
             layers_to_opt.append(p)
     if net_sr.so_lrrb is not None:
         layers_to_opt += list(net_sr.so_lrrb.parameters())
+    if net_sr.rgb_ref_attention is not None:
+        layers_to_opt += list(net_sr.rgb_ref_attention.parameters())
 
     dataset_train = ThermalPairDataset(config.train, sf=config.sf)
     dl_train = torch.utils.data.DataLoader(
@@ -183,10 +189,10 @@ def main(args):
     for epoch in range(0, args.num_training_epochs):
         for step, batch in enumerate(dl_train):
             with accelerator.accumulate(net_sr, net_disc):
-                x_src, x_tgt, _ = paired_thermal_proc(batch, accelerator.device)
+                x_src, x_tgt, _, x_visible = paired_thermal_proc(batch, accelerator.device)
                 prompt = [args.pos_prompt for _ in range(x_src.shape[0])]
 
-                x_tgt_pred = net_sr(x_src.detach(), prompt)
+                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible)
                 loss_l2 = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean") * args.lambda_l2
                 loss_lpips = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean() * args.lambda_lpips
                 loss = loss_l2 + loss_lpips
@@ -198,7 +204,7 @@ def main(args):
                 lr_scheduler.step()
                 optimizer.zero_grad(set_to_none=args.set_grads_to_none)
 
-                x_tgt_pred = net_sr(x_src.detach(), prompt)
+                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible)
                 lossG = net_disc(x_tgt_pred, for_G=True).mean() * args.lambda_gan
                 accelerator.backward(lossG)
                 if accelerator.sync_gradients:
@@ -245,10 +251,10 @@ def main(args):
                         for step_val, batch_val in enumerate(dl_val):
                             if step_val >= args.num_samples_eval:
                                 break
-                            x_src, x_tgt, _ = paired_thermal_proc(batch_val, accelerator.device)
+                            x_src, x_tgt, _, x_visible = paired_thermal_proc(batch_val, accelerator.device)
                             with torch.no_grad():
                                 prompt_val = [args.pos_prompt for _ in range(x_src.shape[0])]
-                                x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val)
+                                x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val, visible_ref=x_visible)
                                 l_l2.append(F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item())
                                 l_lpips.append(net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item())
 

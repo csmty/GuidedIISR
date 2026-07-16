@@ -62,8 +62,9 @@ def parse_args_paired_testing(input_args=None):
 
     parser.add_argument("--align_method", type=str, default="wavelet")
     
-    parser.add_argument("--pos_prompt", type=str, default="A high-resolution thermal infrared image with sharp edges, clear structure, and clean details.")
+    parser.add_argument("--pos_prompt", type=str, default="high-resolution infrared thermal image, sharp thermal structures, clear object boundaries, fine texture details, low noise, natural thermal contrast, faithful spatial geometry")
     parser.add_argument("--neg_prompt", type=str, default=None)
+    parser.add_argument("--rgb_ref_prompt", type=str, default="high-resolution visible light reference image, clear structural edges, accurate object contours, fine scene details, natural spatial layout, faithful geometry, useful guidance for thermal image super-resolution")
     parser.add_argument("--disable_so_lrrb", action="store_true", help="Disable the SO-LRRB latent residual refinement module.")
     parser.add_argument("--so_lrrb_hidden_channels", type=int, default=64)
     parser.add_argument("--so_lrrb_growth_channels", type=int, default=32)

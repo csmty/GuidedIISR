@@ -152,7 +152,17 @@ class S3Diff(torch.nn.Module):
             if "lora" in n:
                 p.requires_grad = True
 
-    def forward(self, c_t, prompt, visible_ref=None):
+    def forward(self, c_t, prompt, visible_ref=None, rgb_prompt=None):
+        caption_enc = self._encode_prompt(prompt)
+        rgb_caption_enc = self._encode_prompt(rgb_prompt if rgb_prompt is not None else prompt)
+        encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
+        self._write_visible_reference(visible_ref, rgb_caption_enc)
+        model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc).sample
+        r2 = self.so_lrrb(encoded_control, model_pred) if self.so_lrrb is not None else torch.zeros_like(model_pred)
+        x_denoised = encoded_control - (model_pred + r2)
+        return self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample.clamp(-1, 1)
+
+    def _encode_prompt(self, prompt):
         caption_tokens = self.tokenizer(
             prompt,
             max_length=self.tokenizer.model_max_length,
@@ -160,14 +170,7 @@ class S3Diff(torch.nn.Module):
             truncation=True,
             return_tensors="pt",
         ).input_ids.cuda()
-        caption_enc = self.text_encoder(caption_tokens)[0]
-        encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-        self._write_visible_reference(visible_ref, caption_enc)
-        model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc).sample
-        r2 = self.so_lrrb(encoded_control, model_pred) if self.so_lrrb is not None else torch.zeros_like(model_pred)
-        x_denoised = encoded_control - (model_pred + r2)
-        return self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample.clamp(-1, 1)
-
+        return self.text_encoder(caption_tokens)[0]
 
     def _write_visible_reference(self, visible_ref, caption_enc):
         self.rgb_ref_bank.clear()

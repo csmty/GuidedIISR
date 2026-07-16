@@ -200,8 +200,9 @@ def main(args):
             with accelerator.accumulate(net_sr, net_disc):
                 x_src, x_tgt, _, x_visible = paired_thermal_proc(batch, accelerator.device)
                 prompt = [args.pos_prompt for _ in range(x_src.shape[0])]
+                rgb_prompt = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
 
-                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible)
+                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible, rgb_prompt=rgb_prompt)
                 loss_l2 = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean") * args.lambda_l2
                 loss_lpips = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean() * args.lambda_lpips
                 loss = loss_l2 + loss_lpips
@@ -213,7 +214,7 @@ def main(args):
                 lr_scheduler.step()
                 optimizer.zero_grad(set_to_none=args.set_grads_to_none)
 
-                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible)
+                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible, rgb_prompt=rgb_prompt)
                 lossG = net_disc(x_tgt_pred, for_G=True).mean() * args.lambda_gan
                 accelerator.backward(lossG)
                 if accelerator.sync_gradients:
@@ -263,7 +264,8 @@ def main(args):
                             x_src, x_tgt, _, x_visible = paired_thermal_proc(batch_val, accelerator.device)
                             with torch.no_grad():
                                 prompt_val = [args.pos_prompt for _ in range(x_src.shape[0])]
-                                x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val, visible_ref=x_visible)
+                                rgb_prompt_val = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
+                                x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
                                 l_l2.append(F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item())
                                 l_lpips.append(net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item())
 

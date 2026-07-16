@@ -189,8 +189,9 @@ def main(args):
         with torch.no_grad():
             # forward pass
             pos_tag_prompt = [args.pos_prompt for _ in range(B)]
+            rgb_ref_prompt = [args.rgb_ref_prompt for _ in range(B)]
             neg_tag_prompt = [args.neg_prompt for _ in range(B)] if args.neg_prompt is not None else None
-            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt)
+            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt, rgb_prompt=rgb_ref_prompt)
             x_tgt_pred = x_tgt_pred[:, :, :resize_h, :resize_w]
             out_img = (x_tgt_pred * 0.5 + 0.5).cpu().detach()
 

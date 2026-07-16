@@ -155,10 +155,11 @@ class S3Diff(torch.nn.Module):
                 p.requires_grad = True
 
     @torch.no_grad()
-    def forward(self, c_t, pos_prompt, neg_prompt=None, visible_ref=None):
+    def forward(self, c_t, pos_prompt, neg_prompt=None, visible_ref=None, rgb_prompt=None):
         pos_caption_enc = self._encode_prompt(pos_prompt)
+        rgb_caption_enc = self._encode_prompt(rgb_prompt if rgb_prompt is not None else pos_prompt)
         lq_latent = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-        self._write_visible_reference(visible_ref, pos_caption_enc)
+        self._write_visible_reference(visible_ref, rgb_caption_enc)
         pos_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=pos_caption_enc).sample
         if neg_prompt is not None:
             neg_caption_enc = self._encode_prompt(neg_prompt)

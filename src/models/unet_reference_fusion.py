@@ -20,7 +20,8 @@ class PerHeadSVCMAICG(nn.Module):
         self.heads = heads
         self.dim_head = dim_head
         self.num_summary_tokens = num_summary_tokens
-        self.summary_tokens = nn.Parameter(torch.randn(heads, num_summary_tokens, dim_head) * 0.02)
+        self.rgb_summary_tokens = nn.Parameter(torch.randn(heads, num_summary_tokens, dim_head) * 0.02)
+        self.thermal_summary_tokens = nn.Parameter(torch.randn(heads, num_summary_tokens, dim_head) * 0.02)
         self.local_mlp = nn.Sequential(
             nn.LayerNorm(9),
             nn.Linear(9, mlp_hidden),
@@ -34,17 +35,17 @@ class PerHeadSVCMAICG(nn.Module):
             nn.Linear(mlp_hidden, 1),
         )
 
-    def _summarize(self, keys):
+    def _summarize(self, keys, summary_tokens):
         # keys: [B, H, N, D], summary tokens: [H, S, D]
-        tokens = self.summary_tokens.unsqueeze(0).to(dtype=keys.dtype, device=keys.device)
+        tokens = summary_tokens.unsqueeze(0).to(dtype=keys.dtype, device=keys.device)
         logits = torch.einsum("bhsd,bhnd->bhsn", tokens, keys) / math.sqrt(self.dim_head)
         weights = torch.softmax(logits, dim=-1)
         return torch.einsum("bhsn,bhnd->bhsd", weights, keys)
 
     def forward(self, q_t, k_rgb, k_thermal):
         # q_t/k_*: [B, H, N, D]
-        s_rgb = self._summarize(k_rgb)
-        s_thermal = self._summarize(k_thermal)
+        s_rgb = self._summarize(k_rgb, self.rgb_summary_tokens)
+        s_thermal = self._summarize(k_thermal, self.thermal_summary_tokens)
 
         q = F.normalize(q_t, dim=-1)
         s_rgb = F.normalize(s_rgb, dim=-1)

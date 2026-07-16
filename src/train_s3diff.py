@@ -288,7 +288,8 @@ def main(args):
                                 x_src_vis = x_src.cpu().detach() * 0.5 + 0.5
                                 x_tgt_vis = x_tgt.cpu().detach() * 0.5 + 0.5
                                 x_tgt_pred_vis = x_tgt_pred.cpu().detach() * 0.5 + 0.5
-                                combined = torch.cat([x_src_vis, x_tgt_pred_vis, x_tgt_vis], dim=3).clamp(0, 1)
+                                x_visible_vis = x_visible.cpu().detach() * 0.5 + 0.5
+                                combined = torch.cat([x_src_vis, x_tgt_pred_vis, x_tgt_vis, x_visible_vis], dim=3).clamp(0, 1)
                                 transforms.ToPILImage()(combined[0]).save(os.path.join(eval_dir, f"val_{step_val:03d}.png"))
 
                         logs["val/l2"] = np.mean(l_l2) if l_l2 else 0.0

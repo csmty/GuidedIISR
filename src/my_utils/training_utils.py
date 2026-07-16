@@ -46,7 +46,7 @@ def parse_args_paired_training(input_args=None):
     # validation eval args
     parser.add_argument("--eval_freq", default=100, type=int)
     parser.add_argument("--save_val", default=True, action="store_false")
-    parser.add_argument("--num_samples_eval", type=int, default=100, help="Number of samples to use for all evaluation")
+    parser.add_argument("--num_samples_eval", type=int, default=20, help="Number of samples to use for all evaluation")
 
     parser.add_argument("--viz_freq", type=int, default=100, help="Frequency of visualizing the outputs.")
 

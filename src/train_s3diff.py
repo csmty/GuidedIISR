@@ -21,6 +21,7 @@ from diffusers.optimization import get_scheduler
 
 from s3diff import S3Diff
 from my_utils.training_utils import parse_args_paired_training, ThermalPairDataset, paired_thermal_proc
+from basicsr.metrics import calculate_psnr_pt, calculate_ssim_pt
 
 
 def main(args):
@@ -256,8 +257,12 @@ def main(args):
                         accelerator.unwrap_model(net_sr).save_model(outf)
 
                     if global_step % args.eval_freq == 1:
-                        l_l2, l_lpips = [], []
-                        val_count = 0
+                        l_l2, l_lpips, l_psnr, l_ssim = [], [], [], []
+                        metrics_rows = []
+                        eval_dir = os.path.join(args.output_dir, "eval", f"step_{global_step:06d}")
+                        if args.save_val:
+                            os.makedirs(eval_dir, exist_ok=True)
+
                         for step_val, batch_val in enumerate(dl_val):
                             if step_val >= args.num_samples_eval:
                                 break
@@ -266,19 +271,38 @@ def main(args):
                                 prompt_val = [args.pos_prompt for _ in range(x_src.shape[0])]
                                 rgb_prompt_val = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
                                 x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
-                                l_l2.append(F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item())
-                                l_lpips.append(net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item())
+                                l2_val = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item()
+                                lpips_val = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item()
+                                pred_metric = (x_tgt_pred.float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
+                                tgt_metric = (x_tgt.detach().float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
+                                psnr_val = calculate_psnr_pt(pred_metric, tgt_metric, crop_border=0).mean().item()
+                                ssim_val = calculate_ssim_pt(pred_metric, tgt_metric, crop_border=0).mean().item()
 
-                            if args.save_val and val_count < 5:
+                            l_l2.append(l2_val)
+                            l_lpips.append(lpips_val)
+                            l_psnr.append(psnr_val)
+                            l_ssim.append(ssim_val)
+                            metrics_rows.append((step_val, l2_val, lpips_val, psnr_val, ssim_val))
+
+                            if args.save_val:
                                 x_src_vis = x_src.cpu().detach() * 0.5 + 0.5
                                 x_tgt_vis = x_tgt.cpu().detach() * 0.5 + 0.5
                                 x_tgt_pred_vis = x_tgt_pred.cpu().detach() * 0.5 + 0.5
-                                combined = torch.cat([x_src_vis, x_tgt_pred_vis, x_tgt_vis], dim=3)
-                                transforms.ToPILImage()(combined[0]).save(os.path.join(args.output_dir, f"val_{step_val}.png"))
-                                val_count += 1
+                                combined = torch.cat([x_src_vis, x_tgt_pred_vis, x_tgt_vis], dim=3).clamp(0, 1)
+                                transforms.ToPILImage()(combined[0]).save(os.path.join(eval_dir, f"val_{step_val:03d}.png"))
 
                         logs["val/l2"] = np.mean(l_l2) if l_l2 else 0.0
                         logs["val/lpips"] = np.mean(l_lpips) if l_lpips else 0.0
+                        logs["val/psnr"] = np.mean(l_psnr) if l_psnr else 0.0
+                        logs["val/ssim"] = np.mean(l_ssim) if l_ssim else 0.0
+
+                        if args.save_val:
+                            metrics_path = os.path.join(eval_dir, "metrics.csv")
+                            with open(metrics_path, "w", encoding="utf-8") as f:
+                                f.write("index,l2,lpips,psnr,ssim\n")
+                                for row in metrics_rows:
+                                    f.write(f"{row[0]},{row[1]:.8f},{row[2]:.8f},{row[3]:.6f},{row[4]:.6f}\n")
+                                f.write(f"mean,{logs['val/l2']:.8f},{logs['val/lpips']:.8f},{logs['val/psnr']:.6f},{logs['val/ssim']:.6f}\n")
                         gc.collect()
                         torch.cuda.empty_cache()
 

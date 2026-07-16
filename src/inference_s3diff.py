@@ -129,7 +129,7 @@ def main(args):
         os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
 
     # initialize net_sr
-    net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_heads=args.rgb_ref_num_heads, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
+    net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
     net_sr.set_eval()
 
     if args.enable_xformers_memory_efficient_attention:

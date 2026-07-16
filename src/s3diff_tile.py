@@ -8,11 +8,11 @@ p = "src/"
 sys.path.append(p)
 from model import make_1step_sched
 from models.latent_residual_refinement import SOLRRB
-from models.sv_cm_aicg import GatedReferenceAttention
+from models.unet_reference_fusion import install_unet_reference_fusion
 
 
 class S3Diff(torch.nn.Module):
-    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_heads=1, rgb_ref_num_summary_tokens=4):
+    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16):
         super().__init__()
         self.args = args
         self.guidance_scale = 1.07
@@ -59,7 +59,6 @@ class S3Diff(torch.nn.Module):
             so_lrrb_kappa = so_lrrb_config.get("kappa", so_lrrb_kappa)
             enable_rgb_ref = sd.get("enable_rgb_ref", enable_rgb_ref)
             rgb_ref_config = sd.get("rgb_ref_config", {})
-            rgb_ref_num_heads = rgb_ref_config.get("num_heads", rgb_ref_num_heads)
             rgb_ref_num_summary_tokens = rgb_ref_config.get("num_summary_tokens", rgb_ref_num_summary_tokens)
         else:
             print("Initializing model with standard LoRA weights")
@@ -87,10 +86,19 @@ class S3Diff(torch.nn.Module):
             self.so_lrrb.load_state_dict(sd["state_dict_so_lrrb"])
 
         self.enable_rgb_ref = enable_rgb_ref
-        self.rgb_ref_config = {"channels": 4, "num_heads": rgb_ref_num_heads, "num_summary_tokens": rgb_ref_num_summary_tokens}
-        self.rgb_ref_attention = GatedReferenceAttention(**self.rgb_ref_config) if enable_rgb_ref else None
-        if pretrained_path is not None and self.rgb_ref_attention is not None and "state_dict_rgb_ref_attention" in sd:
-            self.rgb_ref_attention.load_state_dict(sd["state_dict_rgb_ref_attention"])
+        self.rgb_ref_config = {"num_summary_tokens": rgb_ref_num_summary_tokens}
+        self.rgb_ref_bank = []
+        if enable_rgb_ref:
+            self.rgb_ref_blocks, self.rgb_ref_block_paths = install_unet_reference_fusion(
+                unet, ref_unet, self.rgb_ref_bank, num_summary_tokens=rgb_ref_num_summary_tokens
+            )
+        else:
+            self.rgb_ref_blocks, self.rgb_ref_block_paths = [], []
+        if pretrained_path is not None and self.rgb_ref_blocks and "state_dict_rgb_ref_blocks" in sd:
+            block_states = sd["state_dict_rgb_ref_blocks"]
+            for path, block in zip(self.rgb_ref_block_paths, self.rgb_ref_blocks):
+                if path in block_states:
+                    block.ref_attn.load_state_dict(block_states[path])
 
 
         unet.to("cuda")
@@ -109,9 +117,9 @@ class S3Diff(torch.nn.Module):
         if self.so_lrrb is not None:
             self.so_lrrb.eval()
             self.so_lrrb.requires_grad_(False)
-        if self.rgb_ref_attention is not None:
-            self.rgb_ref_attention.eval()
-            self.rgb_ref_attention.requires_grad_(False)
+        for block in self.rgb_ref_blocks:
+            block.ref_attn.eval()
+            block.ref_attn.requires_grad_(False)
         self.unet.requires_grad_(False)
         self.vae.requires_grad_(False)
 
@@ -123,11 +131,11 @@ class S3Diff(torch.nn.Module):
         if self.so_lrrb is not None:
             self.so_lrrb.train()
             self.so_lrrb.requires_grad_(True)
-        if self.rgb_ref_attention is not None:
-            self.rgb_ref_attention.train()
-            self.rgb_ref_attention.requires_grad_(True)
         self.unet.requires_grad_(False)
         self.vae.requires_grad_(False)
+        for block in self.rgb_ref_blocks:
+            block.ref_attn.train()
+            block.ref_attn.requires_grad_(True)
         for n, p in self.unet.named_parameters():
             if "lora" in n:
                 p.requires_grad = True
@@ -140,11 +148,11 @@ class S3Diff(torch.nn.Module):
     def forward(self, c_t, pos_prompt, neg_prompt=None, visible_ref=None):
         pos_caption_enc = self._encode_prompt(pos_prompt)
         lq_latent = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-        unet_input = self._inject_visible_reference(lq_latent, visible_ref, pos_caption_enc)
-        pos_model_pred = self.unet(unet_input, self.timesteps, encoder_hidden_states=pos_caption_enc).sample
+        self._write_visible_reference(visible_ref, pos_caption_enc)
+        pos_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=pos_caption_enc).sample
         if neg_prompt is not None:
             neg_caption_enc = self._encode_prompt(neg_prompt)
-            neg_model_pred = self.unet(unet_input, self.timesteps, encoder_hidden_states=neg_caption_enc).sample
+            neg_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=neg_caption_enc).sample
             model_pred = neg_model_pred + self.guidance_scale * (pos_model_pred - neg_model_pred)
         else:
             model_pred = pos_model_pred
@@ -163,13 +171,13 @@ class S3Diff(torch.nn.Module):
         return self.text_encoder(caption_tokens)[0]
 
 
-    def _inject_visible_reference(self, thermal_latent, visible_ref, caption_enc):
-        if self.rgb_ref_attention is None or visible_ref is None:
-            return thermal_latent
+    def _write_visible_reference(self, visible_ref, caption_enc):
+        self.rgb_ref_bank.clear()
+        if not self.rgb_ref_blocks or visible_ref is None:
+            return
         with torch.no_grad():
             visible_latent = self.vae.encode(visible_ref).latent_dist.sample() * self.vae.config.scaling_factor
-            visible_feature = self.ref_unet(visible_latent, self.timesteps, encoder_hidden_states=caption_enc).sample
-        return self.rgb_ref_attention(thermal_latent, visible_feature)
+            _ = self.ref_unet(visible_latent, self.timesteps, encoder_hidden_states=caption_enc).sample
 
     def save_model(self, outf):
         sd = {
@@ -182,8 +190,9 @@ class S3Diff(torch.nn.Module):
             "enable_so_lrrb": self.so_lrrb is not None,
             "so_lrrb_config": self.so_lrrb_config,
             "state_dict_so_lrrb": self.so_lrrb.state_dict() if self.so_lrrb is not None else None,
-            "enable_rgb_ref": self.rgb_ref_attention is not None,
+            "enable_rgb_ref": bool(self.rgb_ref_blocks),
             "rgb_ref_config": self.rgb_ref_config,
-            "state_dict_rgb_ref_attention": self.rgb_ref_attention.state_dict() if self.rgb_ref_attention is not None else None,
+            "rgb_ref_block_paths": self.rgb_ref_block_paths,
+            "state_dict_rgb_ref_blocks": {path: block.ref_attn.state_dict() for path, block in zip(self.rgb_ref_block_paths, self.rgb_ref_blocks)},
         }
         torch.save(sd, outf)

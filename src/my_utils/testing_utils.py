@@ -72,8 +72,7 @@ def parse_args_paired_testing(input_args=None):
     parser.add_argument("--so_lrrb_residual_scale", type=float, default=0.2)
     parser.add_argument("--so_lrrb_kappa", type=float, default=0.2)
     parser.add_argument("--disable_rgb_ref", action="store_true", help="Disable frozen visible-reference SV-CM-AICG injection.")
-    parser.add_argument("--rgb_ref_num_heads", type=int, default=1)
-    parser.add_argument("--rgb_ref_num_summary_tokens", type=int, default=4)
+    parser.add_argument("--rgb_ref_num_summary_tokens", type=int, default=16)
 
     # training details
     parser.add_argument("--output_dir", type=str, default='output/')

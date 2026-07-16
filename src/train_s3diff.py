@@ -65,7 +65,6 @@ def main(args):
         so_lrrb_residual_scale=args.so_lrrb_residual_scale,
         so_lrrb_kappa=args.so_lrrb_kappa,
         enable_rgb_ref=not args.disable_rgb_ref,
-        rgb_ref_num_heads=args.rgb_ref_num_heads,
         rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens,
     )
     net_sr.set_train()
@@ -114,8 +113,8 @@ def main(args):
             layers_to_opt.append(p)
     if net_sr.so_lrrb is not None:
         layers_to_opt += list(net_sr.so_lrrb.parameters())
-    if net_sr.rgb_ref_attention is not None:
-        layers_to_opt += list(net_sr.rgb_ref_attention.parameters())
+    for block in net_sr.rgb_ref_blocks:
+        layers_to_opt += list(block.ref_attn.parameters())
 
     dataset_train = ThermalPairDataset(config.train, sf=config.sf)
     dl_train = torch.utils.data.DataLoader(

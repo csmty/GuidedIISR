@@ -102,19 +102,29 @@ def main(args):
     net_lpips.requires_grad_(False)
 
     layers_to_opt = []
-    for n, p in net_sr.unet.named_parameters():
-        if "lora" in n:
-            assert p.requires_grad
+    seen_params = set()
+
+    def add_param(p):
+        if id(p) not in seen_params:
             layers_to_opt.append(p)
-    layers_to_opt += list(net_sr.unet.conv_in.parameters())
+            seen_params.add(id(p))
+
+    for n, p in net_sr.unet.named_parameters():
+        if "lora" in n and "ref_attn" not in n:
+            assert p.requires_grad
+            add_param(p)
+    for p in net_sr.unet.conv_in.parameters():
+        add_param(p)
     for n, p in net_sr.vae.named_parameters():
         if "lora" in n:
             assert p.requires_grad
-            layers_to_opt.append(p)
+            add_param(p)
     if net_sr.so_lrrb is not None:
-        layers_to_opt += list(net_sr.so_lrrb.parameters())
+        for p in net_sr.so_lrrb.parameters():
+            add_param(p)
     for block in net_sr.rgb_ref_blocks:
-        layers_to_opt += list(block.ref_attn.parameters())
+        for p in block.ref_attn.parameters():
+            add_param(p)
 
     dataset_train = ThermalPairDataset(config.train, sf=config.sf)
     dl_train = torch.utils.data.DataLoader(

@@ -1,3 +1,4 @@
+import copy
 import math
 from typing import List, Tuple
 
@@ -64,18 +65,21 @@ class PerHeadSVCMAICG(nn.Module):
 class SVReferenceAttention(nn.Module):
     def __init__(self, attn, num_summary_tokens: int = 16):
         super().__init__()
-        self.attn = attn
         self.heads = attn.heads
         self.inner_dim = attn.inner_dim
         self.dim_head = self.inner_dim // self.heads
+        self.to_q = copy.deepcopy(attn.to_q)
+        self.to_k = copy.deepcopy(attn.to_k)
+        self.to_v = copy.deepcopy(attn.to_v)
+        self.to_out = copy.deepcopy(attn.to_out)
         self.gate = PerHeadSVCMAICG(self.heads, self.dim_head, num_summary_tokens=num_summary_tokens)
         self.zero_linear = ZeroLinear(self.inner_dim, self.inner_dim)
 
     def forward(self, thermal_hidden, rgb_hidden):
-        q = self.attn.to_q(thermal_hidden)
-        k_rgb = self.attn.to_k(rgb_hidden)
-        v_rgb = self.attn.to_v(rgb_hidden)
-        k_thermal = self.attn.to_k(thermal_hidden)
+        q = self.to_q(thermal_hidden)
+        k_rgb = self.to_k(rgb_hidden)
+        v_rgb = self.to_v(rgb_hidden)
+        k_thermal = self.to_k(thermal_hidden)
 
         q = self._split_heads(q)
         k_rgb = self._split_heads(k_rgb)
@@ -86,7 +90,7 @@ class SVReferenceAttention(nn.Module):
         rgb = rgb * self.gate(q, k_rgb, k_thermal)
         rgb = self._merge_heads(rgb)
 
-        for layer in self.attn.to_out:
+        for layer in self.to_out:
             rgb = layer(rgb)
         return self.zero_linear(rgb)
 

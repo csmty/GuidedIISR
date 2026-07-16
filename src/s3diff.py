@@ -183,7 +183,7 @@ class S3Diff(torch.nn.Module):
             "vae_lora_target_modules": self.target_modules_vae,
             "rank_unet": self.lora_rank_unet,
             "rank_vae": self.lora_rank_vae,
-            "state_dict_unet": {k: v for k, v in self.unet.state_dict().items() if "lora" in k or "conv_in" in k},
+            "state_dict_unet": {k: v for k, v in self.unet.state_dict().items() if ("ref_attn" not in k and ("lora" in k or "conv_in" in k))},
             "state_dict_vae": {k: v for k, v in self.vae.state_dict().items() if "lora" in k},
             "enable_so_lrrb": self.so_lrrb is not None,
             "so_lrrb_config": self.so_lrrb_config,

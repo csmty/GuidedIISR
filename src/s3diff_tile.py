@@ -12,7 +12,7 @@ from models.unet_reference_fusion import install_unet_reference_fusion
 
 
 class S3Diff(torch.nn.Module):
-    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16):
+    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16, rgb_ref_timestep=1):
         super().__init__()
         self.args = args
         self.guidance_scale = 1.07
@@ -21,6 +21,7 @@ class S3Diff(torch.nn.Module):
         self.sched = make_1step_sched(sd_path)
 
         vae = AutoencoderKL.from_pretrained(sd_path, subfolder="vae")
+        rgb_vae = AutoencoderKL.from_pretrained(sd_path, subfolder="vae")
         unet = UNet2DConditionModel.from_pretrained(sd_path, subfolder="unet")
         ref_unet = UNet2DConditionModel.from_pretrained(sd_path, subfolder="unet")
 
@@ -60,6 +61,7 @@ class S3Diff(torch.nn.Module):
             enable_rgb_ref = sd.get("enable_rgb_ref", enable_rgb_ref)
             rgb_ref_config = sd.get("rgb_ref_config", {})
             rgb_ref_num_summary_tokens = rgb_ref_config.get("num_summary_tokens", rgb_ref_num_summary_tokens)
+            rgb_ref_timestep = rgb_ref_config.get("timestep", rgb_ref_timestep)
         else:
             print("Initializing model with standard LoRA weights")
             vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian", target_modules=target_modules_vae)
@@ -86,7 +88,7 @@ class S3Diff(torch.nn.Module):
             self.so_lrrb.load_state_dict(sd["state_dict_so_lrrb"])
 
         self.enable_rgb_ref = enable_rgb_ref
-        self.rgb_ref_config = {"num_summary_tokens": rgb_ref_num_summary_tokens}
+        self.rgb_ref_config = {"num_summary_tokens": rgb_ref_num_summary_tokens, "timestep": rgb_ref_timestep}
         self.rgb_ref_bank = []
         if enable_rgb_ref:
             self.rgb_ref_blocks, self.rgb_ref_block_paths = install_unet_reference_fusion(
@@ -103,17 +105,23 @@ class S3Diff(torch.nn.Module):
 
         unet.to("cuda")
         vae.to("cuda")
+        rgb_vae.to("cuda")
         ref_unet.to("cuda")
+        rgb_vae.eval()
+        rgb_vae.requires_grad_(False)
         ref_unet.eval()
         ref_unet.requires_grad_(False)
-        self.unet, self.vae, self.ref_unet = unet, vae, ref_unet
+        self.unet, self.vae, self.rgb_vae, self.ref_unet = unet, vae, rgb_vae, ref_unet
         self.timesteps = torch.tensor([50], device="cuda").long()
+        self.rgb_ref_timesteps = torch.tensor([rgb_ref_timestep], device="cuda").long()
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
         self.unet.eval()
         self.vae.eval()
+        self.rgb_vae.eval()
         self.ref_unet.eval()
+        self.rgb_vae.requires_grad_(False)
         if self.so_lrrb is not None:
             self.so_lrrb.eval()
             self.so_lrrb.requires_grad_(False)
@@ -126,6 +134,8 @@ class S3Diff(torch.nn.Module):
     def set_train(self):
         self.unet.train()
         self.vae.train()
+        self.rgb_vae.eval()
+        self.rgb_vae.requires_grad_(False)
         self.ref_unet.eval()
         self.ref_unet.requires_grad_(False)
         if self.so_lrrb is not None:
@@ -176,8 +186,8 @@ class S3Diff(torch.nn.Module):
         if not self.rgb_ref_blocks or visible_ref is None:
             return
         with torch.no_grad():
-            visible_latent = self.vae.encode(visible_ref).latent_dist.sample() * self.vae.config.scaling_factor
-            _ = self.ref_unet(visible_latent, self.timesteps, encoder_hidden_states=caption_enc).sample
+            visible_latent = self.rgb_vae.encode(visible_ref).latent_dist.sample() * self.rgb_vae.config.scaling_factor
+            _ = self.ref_unet(visible_latent, self.rgb_ref_timesteps, encoder_hidden_states=caption_enc).sample
 
     def save_model(self, outf):
         sd = {

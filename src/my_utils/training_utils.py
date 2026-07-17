@@ -80,7 +80,7 @@ def parse_args_paired_training(input_args=None):
     parser.add_argument("--num_training_epochs", type=int, default=50)
     parser.add_argument("--max_train_steps", type=int, default=50000,)
     parser.add_argument("--checkpointing_steps", type=int, default=500,)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Number of updates steps to accumulate before performing a backward/update pass.",)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=2, help="Number of updates steps to accumulate before performing a backward/update pass.",)
     parser.add_argument("--gradient_checkpointing", action="store_true",)
     parser.add_argument("--learning_rate", type=float, default=2e-5)
     parser.add_argument("--lr_scheduler", type=str, default="constant",

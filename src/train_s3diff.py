@@ -21,6 +21,7 @@ from diffusers.optimization import get_scheduler
 
 from s3diff import S3Diff
 from my_utils.training_utils import parse_args_paired_training, ThermalPairDataset, paired_thermal_proc
+from my_utils.dwt_loss import DWTLoss
 from basicsr.metrics import calculate_psnr_pt, calculate_ssim_pt
 
 
@@ -83,24 +84,10 @@ def main(args):
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    if args.gan_disc_type == "vagan":
-        import vision_aided_loss
-        net_disc = vision_aided_loss.Discriminator(
-            cv_type='dino',
-            output_type='conv_multi_level',
-            loss_type=args.gan_loss_type,
-            device="cuda",
-        )
-    else:
-        raise NotImplementedError(f"Discriminator type {args.gan_disc_type} not implemented")
-
-    net_disc = net_disc.cuda()
-    net_disc.requires_grad_(True)
-    net_disc.cv_ensemble.requires_grad_(False)
-    net_disc.train()
-
     net_lpips = lpips.LPIPS(net='vgg').cuda()
     net_lpips.requires_grad_(False)
+    net_dwt = DWTLoss().cuda()
+    net_dwt.requires_grad_(False)
 
     layers_to_opt = []
     seen_params = set()
@@ -153,26 +140,11 @@ def main(args):
         power=args.lr_power,
     )
 
-    optimizer_disc = torch.optim.AdamW(
-        net_disc.parameters(),
-        lr=args.learning_rate,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
-    )
-    lr_scheduler_disc = get_scheduler(
-        args.lr_scheduler,
-        optimizer=optimizer_disc,
-        num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
-        num_training_steps=args.max_train_steps * accelerator.num_processes,
-        num_cycles=args.lr_num_cycles,
-        power=args.lr_power,
-    )
-
-    net_sr, net_disc, optimizer, optimizer_disc, dl_train, lr_scheduler, lr_scheduler_disc = accelerator.prepare(
-        net_sr, net_disc, optimizer, optimizer_disc, dl_train, lr_scheduler, lr_scheduler_disc
+    net_sr, optimizer, dl_train, lr_scheduler = accelerator.prepare(
+        net_sr, optimizer, dl_train, lr_scheduler
     )
     net_lpips = accelerator.prepare(net_lpips)
+    net_dwt = accelerator.prepare(net_dwt)
 
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
@@ -181,8 +153,8 @@ def main(args):
         weight_dtype = torch.bfloat16
 
     net_sr.to(accelerator.device, dtype=weight_dtype)
-    net_disc.to(accelerator.device, dtype=weight_dtype)
     net_lpips.to(accelerator.device, dtype=weight_dtype)
+    net_dwt.to(accelerator.device, dtype=weight_dtype)
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -191,14 +163,10 @@ def main(args):
         disable=not accelerator.is_local_main_process,
     )
 
-    for name, module in net_disc.named_modules():
-        if "attn" in name:
-            module.fused_attn = False
-
     global_step = 0
     for epoch in range(0, args.num_training_epochs):
         for step, batch in enumerate(dl_train):
-            with accelerator.accumulate(net_sr, net_disc):
+            with accelerator.accumulate(net_sr):
                 x_src, x_tgt, _, x_visible = paired_thermal_proc(batch, accelerator.device)
                 prompt = [args.pos_prompt for _ in range(x_src.shape[0])]
                 rgb_prompt = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
@@ -206,7 +174,8 @@ def main(args):
                 x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible, rgb_prompt=rgb_prompt)
                 loss_l2 = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean") * args.lambda_l2
                 loss_lpips = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean() * args.lambda_lpips
-                loss = loss_l2 + loss_lpips
+                loss_dwt = net_dwt(x_tgt_pred.float(), x_tgt.detach().float()) * args.lambda_dwt
+                loss = loss_l2 + loss_lpips + loss_dwt
 
                 accelerator.backward(loss, retain_graph=False)
                 if accelerator.sync_gradients:
@@ -215,40 +184,15 @@ def main(args):
                 lr_scheduler.step()
                 optimizer.zero_grad(set_to_none=args.set_grads_to_none)
 
-                x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible, rgb_prompt=rgb_prompt)
-                lossG = net_disc(x_tgt_pred, for_G=True).mean() * args.lambda_gan
-                accelerator.backward(lossG)
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(layers_to_opt, args.max_grad_norm)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad(set_to_none=args.set_grads_to_none)
-
-                lossD_real = net_disc(x_tgt.detach(), for_real=True).mean() * args.lambda_gan
-                accelerator.backward(lossD_real.mean())
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(net_disc.parameters(), args.max_grad_norm)
-                optimizer_disc.step()
-                lr_scheduler_disc.step()
-                optimizer_disc.zero_grad(set_to_none=args.set_grads_to_none)
-
-                lossD_fake = net_disc(x_tgt_pred.detach(), for_real=False).mean() * args.lambda_gan
-                accelerator.backward(lossD_fake.mean())
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(net_disc.parameters(), args.max_grad_norm)
-                optimizer_disc.step()
-                optimizer_disc.zero_grad(set_to_none=args.set_grads_to_none)
-                lossD = lossD_real + lossD_fake
-
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
                 if accelerator.is_main_process:
                     logs = {
-                        "lossG": lossG.detach().item(),
-                        "lossD": lossD.detach().item(),
+                        "loss": loss.detach().item(),
                         "loss_l2": loss_l2.detach().item(),
                         "loss_lpips": loss_lpips.detach().item(),
+                        "loss_dwt": loss_dwt.detach().item(),
                     }
                     progress_bar.set_postfix(**logs)
 
@@ -257,7 +201,7 @@ def main(args):
                         accelerator.unwrap_model(net_sr).save_model(outf)
 
                     if global_step % args.eval_freq == 1:
-                        l_l2, l_lpips, l_psnr, l_ssim = [], [], [], []
+                        l_l2, l_lpips, l_dwt, l_psnr, l_ssim = [], [], [], [], []
                         metrics_rows = []
                         eval_dir = os.path.join(args.output_dir, "eval", f"step_{global_step:06d}")
                         net_sr_unwrapped = accelerator.unwrap_model(net_sr)
@@ -275,6 +219,7 @@ def main(args):
                                 x_tgt_pred = net_sr_unwrapped(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
                                 l2_val = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item()
                                 lpips_val = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item()
+                                dwt_val = net_dwt(x_tgt_pred.float(), x_tgt.detach().float()).item()
                                 pred_metric = (x_tgt_pred.float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
                                 tgt_metric = (x_tgt.detach().float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
                                 psnr_val = calculate_psnr_pt(pred_metric, tgt_metric, crop_border=0).mean().item()
@@ -282,9 +227,10 @@ def main(args):
 
                             l_l2.append(l2_val)
                             l_lpips.append(lpips_val)
+                            l_dwt.append(dwt_val)
                             l_psnr.append(psnr_val)
                             l_ssim.append(ssim_val)
-                            metrics_rows.append((step_val, l2_val, lpips_val, psnr_val, ssim_val))
+                            metrics_rows.append((step_val, l2_val, lpips_val, dwt_val, psnr_val, ssim_val))
 
                             if args.save_val:
                                 x_src_vis = x_src.cpu().detach() * 0.5 + 0.5
@@ -296,16 +242,17 @@ def main(args):
 
                         logs["val/l2"] = np.mean(l_l2) if l_l2 else 0.0
                         logs["val/lpips"] = np.mean(l_lpips) if l_lpips else 0.0
+                        logs["val/dwt"] = np.mean(l_dwt) if l_dwt else 0.0
                         logs["val/psnr"] = np.mean(l_psnr) if l_psnr else 0.0
                         logs["val/ssim"] = np.mean(l_ssim) if l_ssim else 0.0
 
                         if args.save_val:
                             metrics_path = os.path.join(eval_dir, "metrics.csv")
                             with open(metrics_path, "w", encoding="utf-8") as f:
-                                f.write("index,l2,lpips,psnr,ssim\n")
+                                f.write("index,l2,lpips,dwt,psnr,ssim\n")
                                 for row in metrics_rows:
-                                    f.write(f"{row[0]},{row[1]:.8f},{row[2]:.8f},{row[3]:.6f},{row[4]:.6f}\n")
-                                f.write(f"mean,{logs['val/l2']:.8f},{logs['val/lpips']:.8f},{logs['val/psnr']:.6f},{logs['val/ssim']:.6f}\n")
+                                    f.write(f"{row[0]},{row[1]:.8f},{row[2]:.8f},{row[3]:.8f},{row[4]:.6f},{row[5]:.6f}\n")
+                                f.write(f"mean,{logs['val/l2']:.8f},{logs['val/lpips']:.8f},{logs['val/dwt']:.8f},{logs['val/psnr']:.6f},{logs['val/ssim']:.6f}\n")
                         net_sr_unwrapped.set_train()
                         gc.collect()
                         torch.cuda.empty_cache()

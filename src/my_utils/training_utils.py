@@ -36,11 +36,9 @@ def parse_args_paired_training(input_args=None):
    """
     parser = argparse.ArgumentParser()
     # args for the loss function
-    parser.add_argument("--gan_disc_type", default="vagan")
-    parser.add_argument("--gan_loss_type", default="multilevel_sigmoid_s")
-    parser.add_argument("--lambda_gan", default=0.5, type=float)
+    parser.add_argument("--lambda_l2", default=1.0, type=float)
     parser.add_argument("--lambda_lpips", default=5.0, type=float)
-    parser.add_argument("--lambda_l2", default=2.0, type=float)
+    parser.add_argument("--lambda_dwt", default=1.0, type=float)
     parser.add_argument("--base_config", default="./configs/sr.yaml", type=str)
 
     # validation eval args

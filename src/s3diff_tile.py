@@ -11,6 +11,21 @@ from models.latent_residual_refinement import SOLRRB
 from models.unet_reference_fusion import install_unet_reference_fusion
 
 
+def _upgrade_rgb_ref_state_dict(state_dict):
+    upgraded = dict(state_dict)
+    for key, value in state_dict.items():
+        if key.startswith("to_k."):
+            suffix = key[len("to_k."):]
+            upgraded.setdefault(f"to_k_t.{suffix}", value)
+            upgraded.setdefault(f"to_k_rgb.{suffix}", value)
+            upgraded.pop(key, None)
+        elif key.startswith("to_v."):
+            suffix = key[len("to_v."):]
+            upgraded.setdefault(f"to_v_rgb.{suffix}", value)
+            upgraded.pop(key, None)
+    return upgraded
+
+
 class S3Diff(torch.nn.Module):
     def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16, rgb_ref_timestep=1):
         super().__init__()
@@ -100,7 +115,7 @@ class S3Diff(torch.nn.Module):
             block_states = sd["state_dict_rgb_ref_blocks"]
             for path, block in zip(self.rgb_ref_block_paths, self.rgb_ref_blocks):
                 if path in block_states:
-                    block.ref_attn.load_state_dict(block_states[path])
+                    block.ref_attn.load_state_dict(_upgrade_rgb_ref_state_dict(block_states[path]))
 
 
         unet.to("cuda")

@@ -70,17 +70,18 @@ class SVReferenceAttention(nn.Module):
         self.inner_dim = attn.inner_dim
         self.dim_head = self.inner_dim // self.heads
         self.to_q = copy.deepcopy(attn.to_q)
-        self.to_k = copy.deepcopy(attn.to_k)
-        self.to_v = copy.deepcopy(attn.to_v)
+        self.to_k_t = copy.deepcopy(attn.to_k)
+        self.to_k_rgb = copy.deepcopy(attn.to_k)
+        self.to_v_rgb = copy.deepcopy(attn.to_v)
         self.to_out = copy.deepcopy(attn.to_out)
         self.gate = PerHeadSVCMAICG(self.heads, self.dim_head, num_summary_tokens=num_summary_tokens)
         self.zero_linear = ZeroLinear(self.inner_dim, self.inner_dim)
 
     def forward(self, thermal_hidden, rgb_hidden):
         q = self.to_q(thermal_hidden)
-        k_rgb = self.to_k(rgb_hidden)
-        v_rgb = self.to_v(rgb_hidden)
-        k_thermal = self.to_k(thermal_hidden)
+        k_thermal = self.to_k_t(thermal_hidden)
+        k_rgb = self.to_k_rgb(rgb_hidden)
+        v_rgb = self.to_v_rgb(rgb_hidden)
 
         q = self._split_heads(q)
         k_rgb = self._split_heads(k_rgb)

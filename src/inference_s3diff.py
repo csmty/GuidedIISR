@@ -33,6 +33,19 @@ from pathlib import Path
 from utils import util_image
 from utils.wavelet_color import wavelet_color_fix, adain_color_fix
 
+def _image_paths_by_stem(root):
+    root = Path(root) if not isinstance(root, Path) else root
+    paths = []
+    for pattern in ("*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG"):
+        paths.extend(root.glob(pattern))
+    by_stem = {}
+    for path in sorted(paths):
+        if path.stem in by_stem:
+            raise ValueError(f"Duplicate image stem in {root}: {path.stem}")
+        by_stem[path.stem] = path
+    return by_stem
+
+
 def evaluate(in_path, ref_path, ntest):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -46,25 +59,30 @@ def evaluate(in_path, ref_path, ntest):
     in_path = Path(in_path) if not isinstance(in_path, Path) else in_path
     assert in_path.is_dir()
     
-    ref_path_list = None
+    ref_by_stem = None
     if ref_path is not None:
         ref_path = Path(ref_path) if not isinstance(ref_path, Path) else ref_path
-        ref_path_list = sorted([x for x in ref_path.glob("*.[jpJP][pnPN]*[gG]")])
-        if ntest is not None: ref_path_list = ref_path_list[:ntest]
+        ref_by_stem = _image_paths_by_stem(ref_path)
         
         metric_paired_dict["psnr"]=pyiqa.create_metric('psnr', test_y_channel=True, color_space='ycbcr').to(device)
         metric_paired_dict["lpips"]=pyiqa.create_metric('lpips').to(device)
         metric_paired_dict["dists"]=pyiqa.create_metric('dists').to(device)
         metric_paired_dict["ssim"]=pyiqa.create_metric('ssim', test_y_channel=True, color_space='ycbcr' ).to(device)
         
-    lr_path_list = sorted([x for x in in_path.glob("*.[jpJP][pnPN]*[gG]")])
-    if ntest is not None: lr_path_list = lr_path_list[:ntest]
+    pred_by_stem = _image_paths_by_stem(in_path)
+    stems = sorted(pred_by_stem)
+    if ref_by_stem is not None:
+        missing = [stem for stem in stems if stem not in ref_by_stem]
+        if missing:
+            raise FileNotFoundError(f"Missing GT images for predictions: {missing[:5]}")
+    if ntest is not None:
+        stems = stems[:ntest]
     
-    print(f'Find {len(lr_path_list)} images in {in_path}')
+    print(f'Find {len(stems)} images in {in_path}')
     result = {}
-    for i in tqdm.tqdm(range(len(lr_path_list))):
-        _in_path = lr_path_list[i]
-        _ref_path = ref_path_list[i] if ref_path_list is not None else None
+    for stem in tqdm.tqdm(stems):
+        _in_path = pred_by_stem[stem]
+        _ref_path = ref_by_stem[stem] if ref_by_stem is not None else None
         
         im_in = util_image.imread(_in_path, chn='rgb', dtype='float32')  # h x w x c
         im_in_tensor = util_image.img2tensor(im_in).cuda()              # 1 x c x h x w
@@ -72,7 +90,7 @@ def evaluate(in_path, ref_path, ntest):
             with torch.cuda.amp.autocast():
                 result[key] = result.get(key, 0) + metric(im_in_tensor).item()
         
-        if ref_path is not None:
+        if ref_by_stem is not None:
             im_ref = util_image.imread(_ref_path, chn='rgb', dtype='float32')  # h x w x c
             im_ref_tensor = util_image.img2tensor(im_ref).cuda()    
             for key, metric in metric_paired_dict.items():
@@ -88,8 +106,8 @@ def evaluate(in_path, ref_path, ntest):
             print(f"{key}: {res:.2f}")
             print_results.append(f"{key}: {res:.2f}")
         else:
-            print(f"{key}: {res/len(lr_path_list):.5f}")
-            print_results.append(f"{key}: {res/len(lr_path_list):.5f}")
+            print(f"{key}: {res/len(stems):.5f}")
+            print_results.append(f"{key}: {res/len(stems):.5f}")
     return print_results
 
 
@@ -125,8 +143,7 @@ def main(args):
         set_seed(args.seed)
 
     if accelerator.is_main_process:
-        os.makedirs(os.path.join(args.output_dir, "checkpoints"), exist_ok=True)
-        os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
+        os.makedirs(args.output_dir, exist_ok=True)
 
     # initialize net_sr
     net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
@@ -172,8 +189,8 @@ def main(args):
             im_lr,
             size=(ori_h * config.sf,
                   ori_w * config.sf),
-            mode='bilinear',
-            align_corners=False # align_corners with this model causes the output to be shifted, presumably due to training without align_corners
+            mode='bicubic',
+            align_corners=False
             )
 
         im_lr_resize = im_lr_resize.contiguous() 
@@ -185,13 +202,21 @@ def main(args):
         pad_w = (math.ceil(resize_w / 64)) * 64 - resize_w
         im_lr_resize_norm = F.pad(im_lr_resize_norm, pad=(0, pad_w, 0, pad_h), mode='reflect')
         
+        visible_ref = None
+        if 'visible' in batch_val:
+            visible_ref = batch_val['visible'].cuda().to(memory_format=torch.contiguous_format).float()
+            if visible_ref.shape[-2:] != (resize_h, resize_w):
+                visible_ref = F.interpolate(visible_ref, size=(resize_h, resize_w), mode='bicubic', align_corners=False)
+            visible_ref = torch.clamp(visible_ref * 2 - 1.0, -1.0, 1.0)
+            visible_ref = F.pad(visible_ref.contiguous(), pad=(0, pad_w, 0, pad_h), mode='reflect')
+
         B = im_lr_resize.size(0)
         with torch.no_grad():
             # forward pass
             pos_tag_prompt = [args.pos_prompt for _ in range(B)]
             rgb_ref_prompt = [args.rgb_ref_prompt for _ in range(B)]
             neg_tag_prompt = [args.neg_prompt for _ in range(B)] if args.neg_prompt is not None else None
-            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt, rgb_prompt=rgb_ref_prompt)
+            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt, visible_ref=visible_ref, rgb_prompt=rgb_ref_prompt)
             x_tgt_pred = x_tgt_pred[:, :, :resize_h, :resize_w]
             out_img = (x_tgt_pred * 0.5 + 0.5).cpu().detach()
 

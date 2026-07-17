@@ -260,6 +260,8 @@ def main(args):
                         l_l2, l_lpips, l_psnr, l_ssim = [], [], [], []
                         metrics_rows = []
                         eval_dir = os.path.join(args.output_dir, "eval", f"step_{global_step:06d}")
+                        net_sr_unwrapped = accelerator.unwrap_model(net_sr)
+                        net_sr_unwrapped.set_eval()
                         if args.save_val:
                             os.makedirs(eval_dir, exist_ok=True)
 
@@ -270,7 +272,7 @@ def main(args):
                             with torch.no_grad():
                                 prompt_val = [args.pos_prompt for _ in range(x_src.shape[0])]
                                 rgb_prompt_val = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
-                                x_tgt_pred = accelerator.unwrap_model(net_sr)(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
+                                x_tgt_pred = net_sr_unwrapped(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
                                 l2_val = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item()
                                 lpips_val = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item()
                                 pred_metric = (x_tgt_pred.float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
@@ -304,6 +306,7 @@ def main(args):
                                 for row in metrics_rows:
                                     f.write(f"{row[0]},{row[1]:.8f},{row[2]:.8f},{row[3]:.6f},{row[4]:.6f}\n")
                                 f.write(f"mean,{logs['val/l2']:.8f},{logs['val/lpips']:.8f},{logs['val/psnr']:.6f},{logs['val/ssim']:.6f}\n")
+                        net_sr_unwrapped.set_train()
                         gc.collect()
                         torch.cuda.empty_cache()
 

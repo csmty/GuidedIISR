@@ -146,16 +146,38 @@ class PlainDataset(data.Dataset):
         self.lr_paths = []
         if 'lr_path' in opt:
             if isinstance(opt['lr_path'], str):
-                self.lr_paths.extend(sorted(
-                    [str(x) for x in Path(opt['lr_path']).glob('*.png')] +
-                    [str(x) for x in Path(opt['lr_path']).glob('*.jpg')] +
-                    [str(x) for x in Path(opt['lr_path']).glob('*.jpeg')]
-                ))
+                self.lr_paths.extend(self._collect_image_paths(opt['lr_path']))
             else:
-                self.lr_paths.extend(sorted([str(x) for x in Path(opt['lr_path'][0]).glob('*.'+opt['image_type'])]))
-                if len(opt['lr_path']) > 1:
-                    for i in range(len(opt['lr_path'])-1):
-                        self.lr_paths.extend(sorted([str(x) for x in Path(opt['lr_path'][i+1]).glob('*.'+opt['image_type'])]))
+                for lr_root in opt['lr_path']:
+                    self.lr_paths.extend(self._collect_image_paths(lr_root))
+
+        self.visible_paths = None
+        if 'visible_path' in opt:
+            visible_paths = []
+            visible_roots = [opt['visible_path']] if isinstance(opt['visible_path'], str) else opt['visible_path']
+            for visible_root in visible_roots:
+                visible_paths.extend(self._collect_image_paths(visible_root))
+            visible_by_stem = {}
+            for visible_path in visible_paths:
+                stem = Path(visible_path).stem
+                if stem in visible_by_stem:
+                    raise ValueError(f"Duplicate visible reference stem: {stem}")
+                visible_by_stem[stem] = visible_path
+            self.visible_paths = []
+            for lr_path in self.lr_paths:
+                stem = Path(lr_path).stem
+                if stem not in visible_by_stem:
+                    raise FileNotFoundError(f"Missing visible reference for {lr_path}")
+                self.visible_paths.append(visible_by_stem[stem])
+
+    @staticmethod
+    def _collect_image_paths(root):
+        root = Path(root)
+        paths = []
+        for pattern in ("*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG"):
+            paths.extend(str(x) for x in root.glob(pattern))
+        return sorted(paths)
+
 
     def __getitem__(self, index):
         if self.file_client is None:
@@ -188,6 +210,13 @@ class PlainDataset(data.Dataset):
         img_lr = img2tensor([img_lr], bgr2rgb=True, float32=True)[0]
 
         return_d = {'lr': img_lr, 'lr_path': lr_path}
+        if self.visible_paths is not None:
+            visible_path = self.visible_paths[index]
+            visible_img_bytes = self.file_client.get(visible_path, 'visible')
+            img_visible = imfrombytes(visible_img_bytes, float32=True)
+            img_visible = img2tensor([img_visible], bgr2rgb=False, float32=True)[0]
+            return_d['visible'] = img_visible
+            return_d['visible_path'] = visible_path
         return return_d
 
     def __len__(self):

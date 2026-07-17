@@ -2,5 +2,6 @@ sf: 8
 
 validation:
   lr_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/lr_thermal
+  visible_path: /data/matengyu/code/@submit/AAAI26/InfraredSR/datasets_prepared/3MTI_4Datasets_x8_native/val/hr_visible
   io_backend:
     type: disk

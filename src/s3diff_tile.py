@@ -117,10 +117,12 @@ class S3Diff(torch.nn.Module):
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
+        super().eval()
         self.unet.eval()
         self.vae.eval()
         self.rgb_vae.eval()
         self.ref_unet.eval()
+        self.text_encoder.eval()
         self.rgb_vae.requires_grad_(False)
         if self.so_lrrb is not None:
             self.so_lrrb.eval()
@@ -132,8 +134,10 @@ class S3Diff(torch.nn.Module):
         self.vae.requires_grad_(False)
 
     def set_train(self):
+        super().train()
         self.unet.train()
         self.vae.train()
+        self.text_encoder.eval()
         self.rgb_vae.eval()
         self.rgb_vae.requires_grad_(False)
         self.ref_unet.eval()
@@ -158,7 +162,7 @@ class S3Diff(torch.nn.Module):
     def forward(self, c_t, pos_prompt, neg_prompt=None, visible_ref=None, rgb_prompt=None):
         pos_caption_enc = self._encode_prompt(pos_prompt)
         rgb_caption_enc = self._encode_prompt(rgb_prompt if rgb_prompt is not None else pos_prompt)
-        lq_latent = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
+        lq_latent = self._encode_vae_latent(self.vae, c_t)
         self._write_visible_reference(visible_ref, rgb_caption_enc)
         pos_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=pos_caption_enc).sample
         if neg_prompt is not None:
@@ -182,12 +186,17 @@ class S3Diff(torch.nn.Module):
         return self.text_encoder(caption_tokens)[0]
 
 
+    def _encode_vae_latent(self, vae, image):
+        latent_dist = vae.encode(image).latent_dist
+        latent = latent_dist.sample() if self.training else latent_dist.mode()
+        return latent * vae.config.scaling_factor
+
     def _write_visible_reference(self, visible_ref, caption_enc):
         self.rgb_ref_bank.clear()
         if not self.rgb_ref_blocks or visible_ref is None:
             return
         with torch.no_grad():
-            visible_latent = self.rgb_vae.encode(visible_ref).latent_dist.sample() * self.rgb_vae.config.scaling_factor
+            visible_latent = self._encode_vae_latent(self.rgb_vae, visible_ref)
             _ = self.ref_unet(visible_latent, self.rgb_ref_timesteps, encoder_hidden_states=caption_enc).sample
 
     def save_model(self, outf):

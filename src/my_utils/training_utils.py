@@ -1,4 +1,6 @@
 import argparse
+import io
+import math
 import random
 from pathlib import Path
 
@@ -90,6 +92,43 @@ def _load_rgb(path):
 def _to_tensor(image):
     return torch.from_numpy(np.ascontiguousarray(image.transpose(2, 0, 1))).float()
 
+
+def _rgb_low_quality_augmentation(rgb):
+    """Apply non-geometric quality degradation to the visible reference only."""
+    if random.random() >= 0.4:
+        return rgb
+
+    selected = random.choice(("blur", "low_light", "overexpose", "noise", "jpeg"))
+    if selected == "blur":
+        radius = random.uniform(0.6, 2.0)
+        kernel_size = max(3, int(math.ceil(radius * 6)) | 1)
+        rgb = TF.gaussian_blur(rgb, kernel_size=[kernel_size, kernel_size], sigma=[radius, radius])
+    elif selected == "low_light":
+        rgb = rgb * random.uniform(0.35, 0.75)
+    elif selected == "overexpose":
+        factor = random.uniform(1.25, 1.8)
+        rgb = rgb * factor + (factor - 1.0) * 0.15
+    elif selected == "noise":
+        rgb = rgb + torch.randn_like(rgb) * random.uniform(0.01, 0.05)
+    elif selected == "jpeg":
+        device, dtype = rgb.device, rgb.dtype
+        buffer = io.BytesIO()
+        TF.to_pil_image(rgb.detach().cpu().clamp(0.0, 1.0)).save(
+            buffer,
+            format="JPEG",
+            quality=random.randint(25, 70),
+        )
+        buffer.seek(0)
+        rgb = TF.to_tensor(Image.open(buffer).convert("RGB")).to(device=device, dtype=dtype)
+
+    return rgb.clamp(0.0, 1.0)
+
+
+def _augment_visible_reference(rgb):
+    """Apply independent RGB-only reference augmentations used during training."""
+    rgb = _rgb_misalignment_augmentation(rgb)
+    rgb = _rgb_low_quality_augmentation(rgb)
+    return rgb
 
 def _rgb_misalignment_augmentation(rgb):
     """Apply 3MTI-style geometric misalignment to the visible reference only."""
@@ -195,7 +234,7 @@ class ThermalPairDataset(data.Dataset):
 
         sample = {"lr": _to_tensor(img_lr), "gt": _to_tensor(img_hr), "lr_path": lr_path, "gt_path": hr_path}
         if img_visible is not None:
-            visible_tensor = _rgb_misalignment_augmentation(_to_tensor(img_visible))
+            visible_tensor = _augment_visible_reference(_to_tensor(img_visible))
             sample["visible"] = visible_tensor
             sample["visible_path"] = visible_path
         return sample

@@ -147,7 +147,7 @@ def main(args):
         os.makedirs(args.output_dir, exist_ok=True)
 
     # initialize net_sr
-    net_sr = GuidedIISR(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
+    net_sr = GuidedIISR(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_solr=not args.disable_solr, solr_hidden_channels=args.solr_hidden_channels, solr_growth_channels=args.solr_growth_channels, solr_num_blocks=args.solr_num_blocks, solr_num_layers_per_block=args.solr_num_layers_per_block, solr_residual_scale=args.solr_residual_scale, solr_kappa=args.solr_kappa, enable_rarg=not args.disable_rarg, rarg_num_summary_tokens=args.rarg_num_summary_tokens)
     net_sr.set_eval()
 
     if args.enable_xformers_memory_efficient_attention:
@@ -215,9 +215,9 @@ def main(args):
         with torch.no_grad():
             # forward pass
             pos_tag_prompt = [args.pos_prompt for _ in range(B)]
-            rgb_ref_prompt = [args.rgb_ref_prompt for _ in range(B)]
+            rarg_prompt = [args.rarg_prompt for _ in range(B)]
             neg_tag_prompt = [args.neg_prompt for _ in range(B)] if args.neg_prompt is not None else None
-            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt, visible_ref=visible_ref, rgb_prompt=rgb_ref_prompt)
+            x_tgt_pred = accelerator.unwrap_model(net_sr)(im_lr_resize_norm, pos_prompt=pos_tag_prompt, neg_prompt=neg_tag_prompt, visible_ref=visible_ref, rgb_prompt=rarg_prompt)
             x_tgt_pred = x_tgt_pred[:, :, :resize_h, :resize_w]
             out_img = (x_tgt_pred * 0.5 + 0.5).cpu().detach()
 

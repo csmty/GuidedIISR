@@ -14,7 +14,9 @@ class ZeroLinear(nn.Linear):
             nn.init.zeros_(self.bias)
 
 
-class PerHeadSVCMAICG(nn.Module):
+class PerHeadRARG(nn.Module):
+    """Reliability gate that scores visible-reference usefulness per token and head."""
+
     def __init__(self, heads: int, dim_head: int, num_summary_tokens: int = 16, mlp_hidden: int = 32):
         super().__init__()
         self.heads = heads
@@ -36,6 +38,7 @@ class PerHeadSVCMAICG(nn.Module):
         )
 
     def _summarize(self, keys, summary_tokens):
+        """Use learnable summary tokens to pool each modality into compact keys."""
         # keys: [B, H, N, D], summary tokens: [H, S, D]
         tokens = summary_tokens.unsqueeze(0).to(dtype=keys.dtype, device=keys.device)
         logits = torch.einsum("bhsd,bhnd->bhsn", tokens, keys) / math.sqrt(self.dim_head)
@@ -43,6 +46,7 @@ class PerHeadSVCMAICG(nn.Module):
         return torch.einsum("bhsn,bhnd->bhsd", weights, keys)
 
     def forward(self, q_t, k_rgb, k_thermal):
+        """Return RARG gate from cross-modal, self-modal, and difference correlations."""
         # q_t/k_*: [B, H, N, D]
         s_rgb = self._summarize(k_rgb, self.rgb_summary_tokens)
         s_thermal = self._summarize(k_thermal, self.thermal_summary_tokens)
@@ -63,7 +67,9 @@ class PerHeadSVCMAICG(nn.Module):
         return g_local * g_global
 
 
-class SVReferenceAttention(nn.Module):
+class RARGReferenceAttention(nn.Module):
+    """Reference attention whose output is filtered by RARG before residual injection."""
+
     def __init__(self, attn, num_summary_tokens: int = 16):
         super().__init__()
         self.heads = attn.heads
@@ -74,10 +80,11 @@ class SVReferenceAttention(nn.Module):
         self.to_k_rgb = copy.deepcopy(attn.to_k)
         self.to_v_rgb = copy.deepcopy(attn.to_v)
         self.to_out = copy.deepcopy(attn.to_out)
-        self.gate = PerHeadSVCMAICG(self.heads, self.dim_head, num_summary_tokens=num_summary_tokens)
+        self.gate = PerHeadRARG(self.heads, self.dim_head, num_summary_tokens=num_summary_tokens)
         self.zero_linear = ZeroLinear(self.inner_dim, self.inner_dim)
 
     def forward(self, thermal_hidden, rgb_hidden):
+        """Inject visible tokens only where RARG marks the reference as reliable."""
         q = self.to_q(thermal_hidden)
         k_thermal = self.to_k_t(thermal_hidden)
         k_rgb = self.to_k_rgb(rgb_hidden)
@@ -112,6 +119,7 @@ class ReferenceWriteBlock(nn.Module):
         self.bank = bank
 
     def forward(self, hidden_states, *args, **kwargs):
+        # Store same-depth visible features for the main UNet RARG read block.
         self.bank.append(hidden_states.detach())
         return self.block(hidden_states, *args, **kwargs)
 
@@ -122,9 +130,10 @@ class ReferenceReadBlock(nn.Module):
         self.block = block
         self.bank = bank
         self.index = index
-        self.ref_attn = SVReferenceAttention(block.attn1, num_summary_tokens=num_summary_tokens)
+        self.ref_attn = RARGReferenceAttention(block.attn1, num_summary_tokens=num_summary_tokens)
 
     def forward(self, hidden_states, *args, **kwargs):
+        # Apply RARG before the original transformer block processes thermal features.
         if self.index < len(self.bank):
             rgb_hidden = self.bank[self.index].to(device=hidden_states.device, dtype=hidden_states.dtype)
             if rgb_hidden.shape == hidden_states.shape:
@@ -132,7 +141,8 @@ class ReferenceReadBlock(nn.Module):
         return self.block(hidden_states, *args, **kwargs)
 
 
-def install_unet_reference_fusion(unet, ref_unet, bank: List[torch.Tensor], num_summary_tokens: int = 16):
+def install_rarg_reference_fusion(unet, ref_unet, bank: List[torch.Tensor], num_summary_tokens: int = 16):
+    """Wrap corresponding transformer blocks in the thermal and visible UNets with RARG."""
     main_paths = _transformer_block_paths(unet)
     ref_paths = _transformer_block_paths(ref_unet)
     if len(main_paths) != len(ref_paths):

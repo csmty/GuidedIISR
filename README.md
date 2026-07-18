@@ -2,7 +2,7 @@
 
 GuidedIISR is a visible-guided infrared image super-resolution method. Given a low-resolution infrared image and a paired high-resolution visible reference image, the model reconstructs a high-resolution infrared image.
 
-The method uses a diffusion prior with LoRA tuning, latent-space residual refinement, and SV-CM-AICG reference attention for controlled visible-to-infrared feature injection.
+The method uses a diffusion prior with LoRA tuning, SOLR (Second-Order Latent Residual Refinement), and RARG (Reliability-Aware Reference Guidance) reference attention for controlled visible-to-infrared feature injection.
 
 ## Released Model
 
@@ -56,7 +56,7 @@ configs/sr_test.yaml
 
 ## Inference
 
-Default inference uses the released checkpoint, fixed seed `42`, thermal timestep `50`, visible-reference timestep `1`, and `align_method=nofix`.
+Default inference uses the released checkpoint, fixed seed `42`, thermal timestep `50`, RARG visible-reference timestep `1`, and `align_method=nofix`.
 
 ```bash
 bash run_inference.sh
@@ -89,7 +89,7 @@ seed = 42
 validation samples = 20
 ```
 
-The visible-reference VAE encoder and reference UNet are frozen. The thermal branch trains LoRA parameters, VAE encoder LoRA, input convolution, latent residual refinement, and reference-attention injection parameters.
+The RARG visible-reference VAE encoder and reference UNet are frozen. The thermal branch trains LoRA parameters, VAE encoder LoRA, input convolution, latent residual refinement, and reference-attention injection parameters.
 
 ## Metrics
 

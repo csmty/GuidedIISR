@@ -31,7 +31,9 @@ class DenseBlock(nn.Module):
         return x + self.residual_scale * self.fuse(self.layers(x))
 
 
-class SOLRRB(nn.Module):
+class SOLR(nn.Module):
+    """Second-Order Latent Residual Refinement for one-step latent denoising."""
+
     def __init__(
         self,
         latent_channels=4,
@@ -69,9 +71,10 @@ class SOLRRB(nn.Module):
         nn.init.zeros_(self.out.bias)
 
     def forward(self, z_l, r1):
+        """Predict a bounded second-order residual from LR latent and first residual."""
         if z_l.shape != r1.shape:
             raise ValueError(
-                f"SO-LRRB expects z_l and r1 to have the same shape, "
+                f"SOLR expects z_l and r1 to have the same shape, "
                 f"but got z_l={tuple(z_l.shape)}, r1={tuple(r1.shape)}"
             )
         fz = self.proj_z(z_l)

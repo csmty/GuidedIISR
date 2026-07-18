@@ -27,11 +27,11 @@ class SummaryTokenPool(nn.Module):
         return self.norm(summary), spatial_shape
 
 
-class SVCMAICG(nn.Module):
+class RARG(nn.Module):
     """Spatially variant cross-modal adaptive information control gate.
 
     The module compares thermal self consistency with thermal-visible cross
-    consistency and returns a gate for RGB reference attention residuals.
+    consistency and returns a gate for RARG reference attention residuals.
     Inputs can be image-like features [B, C, H, W] or token features [B, N, C].
     """
 
@@ -69,7 +69,7 @@ class SVCMAICG(nn.Module):
         visible_tokens, _ = _flatten_feature(visible_feature)
         if thermal_tokens.shape[-1] != self.channels or visible_tokens.shape[-1] != self.channels:
             raise ValueError(
-                f"SV-CM-AICG expects channel dim {self.channels}, "
+                f"RARG expects channel dim {self.channels}, "
                 f"got thermal={thermal_tokens.shape[-1]}, visible={visible_tokens.shape[-1]}"
             )
 
@@ -107,7 +107,7 @@ class SVCMAICG(nn.Module):
 
 
 class GatedReferenceAttention(nn.Module):
-    """Reference attention with SV-CM-AICG and zero-initialized output projection."""
+    """Reference attention with RARG and zero-initialized output projection."""
 
     def __init__(self, channels, num_heads=8, num_summary_tokens=4, gate_channels=1):
         super().__init__()
@@ -117,7 +117,7 @@ class GatedReferenceAttention(nn.Module):
         self.norm_visible = nn.LayerNorm(channels)
         self.attn = nn.MultiheadAttention(channels, num_heads, batch_first=True)
         self.zero_out = ZeroLinear(channels, channels)
-        self.gate = SVCMAICG(
+        self.gate = RARG(
             channels=channels,
             num_summary_tokens=num_summary_tokens,
             num_heads=num_heads,

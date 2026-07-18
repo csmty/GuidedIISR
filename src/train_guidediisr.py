@@ -59,15 +59,15 @@ def main(args):
         lora_rank_vae=args.lora_rank_vae,
         sd_path=sd_path,
         pretrained_path=args.pretrained_path,
-        enable_so_lrrb=not args.disable_so_lrrb,
-        so_lrrb_hidden_channels=args.so_lrrb_hidden_channels,
-        so_lrrb_growth_channels=args.so_lrrb_growth_channels,
-        so_lrrb_num_blocks=args.so_lrrb_num_blocks,
-        so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block,
-        so_lrrb_residual_scale=args.so_lrrb_residual_scale,
-        so_lrrb_kappa=args.so_lrrb_kappa,
-        enable_rgb_ref=not args.disable_rgb_ref,
-        rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens,
+        enable_solr=not args.disable_solr,
+        solr_hidden_channels=args.solr_hidden_channels,
+        solr_growth_channels=args.solr_growth_channels,
+        solr_num_blocks=args.solr_num_blocks,
+        solr_num_layers_per_block=args.solr_num_layers_per_block,
+        solr_residual_scale=args.solr_residual_scale,
+        solr_kappa=args.solr_kappa,
+        enable_rarg=not args.disable_rarg,
+        rarg_num_summary_tokens=args.rarg_num_summary_tokens,
     )
     net_sr.set_train()
 
@@ -111,10 +111,10 @@ def main(args):
         if "lora" in n:
             assert p.requires_grad
             add_param(p)
-    if net_sr.so_lrrb is not None:
-        for p in net_sr.so_lrrb.parameters():
+    if net_sr.solr is not None:
+        for p in net_sr.solr.parameters():
             add_param(p)
-    for block in net_sr.rgb_ref_blocks:
+    for block in net_sr.rarg_blocks:
         for p in block.ref_attn.parameters():
             add_param(p)
 
@@ -173,7 +173,7 @@ def main(args):
             with accelerator.accumulate(net_sr):
                 x_src, x_tgt, _, x_visible = paired_thermal_proc(batch, accelerator.device)
                 prompt = [args.pos_prompt for _ in range(x_src.shape[0])]
-                rgb_prompt = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
+                rgb_prompt = [args.rarg_prompt for _ in range(x_src.shape[0])]
 
                 x_tgt_pred = net_sr(x_src.detach(), prompt, visible_ref=x_visible, rgb_prompt=rgb_prompt)
                 loss_l2 = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean") * args.lambda_l2
@@ -219,7 +219,7 @@ def main(args):
                             x_src, x_tgt, _, x_visible = paired_thermal_proc(batch_val, accelerator.device)
                             with torch.no_grad():
                                 prompt_val = [args.pos_prompt for _ in range(x_src.shape[0])]
-                                rgb_prompt_val = [args.rgb_ref_prompt for _ in range(x_src.shape[0])]
+                                rgb_prompt_val = [args.rarg_prompt for _ in range(x_src.shape[0])]
                                 x_tgt_pred = net_sr_unwrapped(x_src.detach(), prompt_val, visible_ref=x_visible, rgb_prompt=rgb_prompt_val)
                                 l2_val = F.mse_loss(x_tgt_pred.float(), x_tgt.detach().float(), reduction="mean").item()
                                 lpips_val = net_lpips(x_tgt_pred.float(), x_tgt.detach().float()).mean().item()

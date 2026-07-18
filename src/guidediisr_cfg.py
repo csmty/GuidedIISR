@@ -40,7 +40,7 @@ def get_layer_number(module_name):
     return final_layer
 
 
-class S3Diff(torch.nn.Module):
+class GuidedIISR(torch.nn.Module):
     def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=8, lora_rank_vae=4, block_embedding_dim=64):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(sd_path, subfolder="tokenizer")

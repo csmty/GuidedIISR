@@ -14,7 +14,7 @@ from diffusers.utils.import_utils import is_xformers_available
 
 from my_utils.testing_utils import parse_args_paired_testing
 from de_net import DEResNet
-from s3diff_tile import S3Diff
+from guidediisr_tile import GuidedIISR
 from torchvision import transforms
 from utils.wavelet_color import wavelet_color_fix, adain_color_fix
 
@@ -27,7 +27,7 @@ args = parse_args_paired_testing()
 # Load scheduler, tokenizer and models.
 if args.pretrained_path is None:
     from huggingface_hub import hf_hub_download
-    pretrained_path = hf_hub_download(repo_id="zhangap/S3Diff", filename="s3diff.pkl")
+    pretrained_path = hf_hub_download(repo_id="zhangap/GuidedIISR", filename="guidediisr_model.pkl")
 else:
     pretrained_path = args.pretrained_path
 
@@ -40,7 +40,7 @@ else:
 de_net_path = 'assets/mm-realsr/de_net.pth'
 
 # initialize net_sr
-net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args)
+net_sr = GuidedIISR(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args)
 net_sr.set_eval()
 
 # initalize degradation estimation network
@@ -132,9 +132,9 @@ MARKDOWN = \
 """
 ## Degradation-Guided One-Step Image Super-Resolution with Diffusion Priors
 
-[GitHub](https://github.com/ArcticHare105/S3Diff) | [Paper](https://arxiv.org/abs/2409.17058)
+[GitHub](https://github.com/tyma/GuidedIISR) | [Paper](https://arxiv.org/abs/2409.17058)
 
-If S3Diff is helpful for you, please help star the GitHub Repo. Thanks!
+If GuidedIISR is helpful for you, please help star the GitHub Repo. Thanks!
 """
 
 block = gr.Blocks().queue()

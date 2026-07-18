@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 logs/
 output/
+output_runs/
+.vscode/
+metric_scripts.zip
+checkpoints/*.pkl

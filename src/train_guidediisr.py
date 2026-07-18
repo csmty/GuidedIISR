@@ -3,6 +3,7 @@ os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'INFO'
 
 import gc
 import lpips
+import pyiqa
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -19,10 +20,9 @@ import diffusers
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.optimization import get_scheduler
 
-from s3diff import S3Diff
+from guidediisr import GuidedIISR
 from my_utils.training_utils import parse_args_paired_training, ThermalPairDataset, paired_thermal_proc
 from my_utils.dwt_loss import DWTLoss
-from basicsr.metrics import calculate_psnr_pt, calculate_ssim_pt
 
 
 def main(args):
@@ -54,7 +54,7 @@ def main(args):
         os.makedirs(os.path.join(args.output_dir, "checkpoints"), exist_ok=True)
         os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
 
-    net_sr = S3Diff(
+    net_sr = GuidedIISR(
         lora_rank_unet=args.lora_rank_unet,
         lora_rank_vae=args.lora_rank_vae,
         sd_path=sd_path,
@@ -88,6 +88,10 @@ def main(args):
     net_lpips.requires_grad_(False)
     net_dwt = DWTLoss().cuda()
     net_dwt.requires_grad_(False)
+    metric_psnr = pyiqa.create_metric("psnr", test_y_channel=True, color_space="ycbcr").cuda()
+    metric_ssim = pyiqa.create_metric("ssim", test_y_channel=True, color_space="ycbcr").cuda()
+    metric_psnr.eval()
+    metric_ssim.eval()
 
     layers_to_opt = []
     seen_params = set()
@@ -222,8 +226,8 @@ def main(args):
                                 dwt_val = net_dwt(x_tgt_pred.float(), x_tgt.detach().float()).item()
                                 pred_metric = (x_tgt_pred.float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
                                 tgt_metric = (x_tgt.detach().float().clamp(-1, 1) * 0.5 + 0.5).clamp(0, 1)
-                                psnr_val = calculate_psnr_pt(pred_metric, tgt_metric, crop_border=0).mean().item()
-                                ssim_val = calculate_ssim_pt(pred_metric, tgt_metric, crop_border=0).mean().item()
+                                psnr_val = metric_psnr(pred_metric, tgt_metric).detach().flatten().float().mean().item()
+                                ssim_val = metric_ssim(pred_metric, tgt_metric).detach().flatten().float().mean().item()
 
                             l_l2.append(l2_val)
                             l_lpips.append(lpips_val)
@@ -249,7 +253,7 @@ def main(args):
                         if args.save_val:
                             metrics_path = os.path.join(eval_dir, "metrics.csv")
                             with open(metrics_path, "w", encoding="utf-8") as f:
-                                f.write("index,l2,lpips,dwt,psnr,ssim\n")
+                                f.write("index,l2,lpips,dwt,psnr_y,ssim_y\n")
                                 for row in metrics_rows:
                                     f.write(f"{row[0]},{row[1]:.8f},{row[2]:.8f},{row[3]:.8f},{row[4]:.6f},{row[5]:.6f}\n")
                                 f.write(f"mean,{logs['val/l2']:.8f},{logs['val/lpips']:.8f},{logs['val/dwt']:.8f},{logs['val/psnr']:.6f},{logs['val/ssim']:.6f}\n")

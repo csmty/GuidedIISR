@@ -26,9 +26,11 @@ def _upgrade_rgb_ref_state_dict(state_dict):
     return upgraded
 
 
-class S3Diff(torch.nn.Module):
-    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16, rgb_ref_timestep=1):
+class GuidedIISR(torch.nn.Module):
+    def __init__(self, sd_path=None, pretrained_path=None, lora_rank_unet=32, lora_rank_vae=16, args=None, enable_so_lrrb=True, so_lrrb_hidden_channels=64, so_lrrb_growth_channels=32, so_lrrb_num_blocks=3, so_lrrb_num_layers_per_block=3, so_lrrb_residual_scale=0.2, so_lrrb_kappa=0.2, enable_rgb_ref=True, rgb_ref_num_summary_tokens=16, rgb_ref_timestep=1):
         super().__init__()
+        self.args = args
+        self.guidance_scale = 1.07
         self.tokenizer = AutoTokenizer.from_pretrained(sd_path, subfolder="tokenizer")
         self.text_encoder = CLIPTextModel.from_pretrained(sd_path, subfolder="text_encoder").cuda()
         self.sched = make_1step_sched(sd_path)
@@ -179,14 +181,21 @@ class S3Diff(torch.nn.Module):
             if "lora" in n:
                 p.requires_grad = True
 
-    def forward(self, c_t, prompt, visible_ref=None, rgb_prompt=None):
-        caption_enc = self._encode_prompt(prompt)
-        rgb_caption_enc = self._encode_prompt(rgb_prompt if rgb_prompt is not None else prompt)
-        encoded_control = self._encode_vae_latent(self.vae, c_t)
+    @torch.no_grad()
+    def forward(self, c_t, pos_prompt, neg_prompt=None, visible_ref=None, rgb_prompt=None):
+        pos_caption_enc = self._encode_prompt(pos_prompt)
+        rgb_caption_enc = self._encode_prompt(rgb_prompt if rgb_prompt is not None else pos_prompt)
+        lq_latent = self._encode_vae_latent(self.vae, c_t)
         self._write_visible_reference(visible_ref, rgb_caption_enc)
-        model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc).sample
-        r2 = self.so_lrrb(encoded_control, model_pred) if self.so_lrrb is not None else torch.zeros_like(model_pred)
-        x_denoised = encoded_control - (model_pred + r2)
+        pos_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=pos_caption_enc).sample
+        if neg_prompt is not None:
+            neg_caption_enc = self._encode_prompt(neg_prompt)
+            neg_model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=neg_caption_enc).sample
+            model_pred = neg_model_pred + self.guidance_scale * (pos_model_pred - neg_model_pred)
+        else:
+            model_pred = pos_model_pred
+        r2 = self.so_lrrb(lq_latent, model_pred) if self.so_lrrb is not None else torch.zeros_like(model_pred)
+        x_denoised = lq_latent - (model_pred + r2)
         return self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample.clamp(-1, 1)
 
     def _encode_prompt(self, prompt):
@@ -198,6 +207,7 @@ class S3Diff(torch.nn.Module):
             return_tensors="pt",
         ).input_ids.cuda()
         return self.text_encoder(caption_tokens)[0]
+
 
     def _encode_vae_latent(self, vae, image):
         latent_dist = vae.encode(image).latent_dist
@@ -229,3 +239,5 @@ class S3Diff(torch.nn.Module):
             "state_dict_rgb_ref_blocks": {path: block.ref_attn.state_dict() for path, block in zip(self.rgb_ref_block_paths, self.rgb_ref_blocks)},
         }
         torch.save(sd, outf)
+
+# Backward-compatible alias for checkpoints/scripts created before the GuidedIISR release.

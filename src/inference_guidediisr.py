@@ -25,7 +25,7 @@ import utils.misc as misc
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.optimization import get_scheduler
 
-from s3diff_tile import S3Diff
+from guidediisr_tile import GuidedIISR
 from my_utils.testing_utils import parse_args_paired_testing, PlainDataset, lr_proc
 from utils.util_image import ImageSpliterTh
 from my_utils.utils import instantiate_from_config
@@ -115,8 +115,7 @@ def main(args):
     config = OmegaConf.load(args.base_config)
 
     if args.pretrained_path is None:
-        from huggingface_hub import hf_hub_download
-        pretrained_path = hf_hub_download(repo_id="zhangap/S3Diff", filename="s3diff.pkl")
+        raise ValueError("GuidedIISR inference requires --pretrained_path or PRETRAINED_PATH; use the released model_48501 checkpoint.")
     else:
         pretrained_path = args.pretrained_path
 
@@ -141,12 +140,14 @@ def main(args):
 
     if args.seed is not None:
         set_seed(args.seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
     if accelerator.is_main_process:
         os.makedirs(args.output_dir, exist_ok=True)
 
     # initialize net_sr
-    net_sr = S3Diff(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
+    net_sr = GuidedIISR(lora_rank_unet=args.lora_rank_unet, lora_rank_vae=args.lora_rank_vae, sd_path=sd_path, pretrained_path=pretrained_path, args=args, enable_so_lrrb=not args.disable_so_lrrb, so_lrrb_hidden_channels=args.so_lrrb_hidden_channels, so_lrrb_growth_channels=args.so_lrrb_growth_channels, so_lrrb_num_blocks=args.so_lrrb_num_blocks, so_lrrb_num_layers_per_block=args.so_lrrb_num_layers_per_block, so_lrrb_residual_scale=args.so_lrrb_residual_scale, so_lrrb_kappa=args.so_lrrb_kappa, enable_rgb_ref=not args.disable_rgb_ref, rgb_ref_num_summary_tokens=args.rgb_ref_num_summary_tokens)
     net_sr.set_eval()
 
     if args.enable_xformers_memory_efficient_attention:

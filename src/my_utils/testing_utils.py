@@ -78,7 +78,7 @@ def parse_args_paired_testing(input_args=None):
     # training details
     parser.add_argument("--output_dir", type=str, default='output/')
     parser.add_argument("--cache_dir", default=None,)
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument("--seed", type=int, default=42, help="Seed for reproducible GuidedIISR inference.")
     parser.add_argument("--resolution", type=int, default=512,)
     parser.add_argument("--checkpointing_steps", type=int, default=500,)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.",)

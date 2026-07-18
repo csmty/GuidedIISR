@@ -74,7 +74,7 @@ def parse_args_paired_training(input_args=None):
     # training details
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--cache_dir", default=None,)
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training/validation.")
     parser.add_argument("--resolution", type=int, default=512,)
     parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--num_training_epochs", type=int, default=50)

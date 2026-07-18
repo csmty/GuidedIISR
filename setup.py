@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='S3Diff',
-    version='0.0.1',
-    description='',
+    name='GuidedIISR',
+    version='0.1.0',
+    description='Guided visible-reference infrared image super-resolution',
     packages=find_packages(),
     install_requires=[
         'torch',

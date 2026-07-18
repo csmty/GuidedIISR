@@ -6,23 +6,24 @@ The method uses a diffusion prior with LoRA tuning, SOLR (Second-Order Latent Re
 
 ## Released Model
 
-The released checkpoint is `model_48501.pkl` from the run:
+Download the released checkpoint from Google Drive:
 
-```text
-output_runs/run_20260717_154501_dwt_split_ref/checkpoints/model_48501.pkl
-```
+[GuidedIISR_model_48501.pkl](https://drive.google.com/file/d/1As26DtO9W07kB-J1FBZuCc8FsNzKmwlo/view?usp=sharing)
 
-For release packaging, place it at:
+Place it at:
 
 ```text
 checkpoints/GuidedIISR_model_48501.pkl
 ```
 
-Current validation/test result on 1176 images with the 3MTI-style metric protocol:
+Seed-42 test result on 1176 images with the 3MTI-style metric protocol:
 
 ```text
-PSNR: 30.32744
-SSIM: 0.86670
+PSNR: 30.33693
+SSIM: 0.86686
+LPIPS: 0.17128
+DISTS: 0.12327
+FID: 55.63
 ```
 
 ## Environment

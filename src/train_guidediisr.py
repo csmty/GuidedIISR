@@ -200,7 +200,7 @@ def main(args):
                     }
                     progress_bar.set_postfix(**logs)
 
-                    if global_step % args.checkpointing_steps == 1:
+                    if global_step == 1 or global_step % args.checkpointing_steps == 0:
                         outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
                         accelerator.unwrap_model(net_sr).save_model(outf)
 
@@ -267,6 +267,12 @@ def main(args):
                 break
         if global_step >= args.max_train_steps:
             break
+
+    if accelerator.is_main_process and global_step > 0:
+        final_outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
+        if not os.path.exists(final_outf):
+            accelerator.unwrap_model(net_sr).save_model(final_outf)
+    accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__":

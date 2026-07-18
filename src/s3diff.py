@@ -44,12 +44,21 @@ class S3Diff(torch.nn.Module):
             "proj_in", "proj_out", "ff.net.2", "ff.net.0.proj"
         ]
 
+        rgb_ref_bank = []
+        rgb_ref_blocks = []
+        rgb_ref_block_paths = []
+
         if pretrained_path is not None:
             sd = torch.load(pretrained_path, map_location="cpu")
             lora_rank_vae = sd["rank_vae"]
             lora_rank_unet = sd["rank_unet"]
             target_modules_vae = sd["vae_lora_target_modules"]
             target_modules_unet = sd["unet_lora_target_modules"]
+
+            enable_rgb_ref = sd.get("enable_rgb_ref", enable_rgb_ref)
+            rgb_ref_config = sd.get("rgb_ref_config", {})
+            rgb_ref_num_summary_tokens = rgb_ref_config.get("num_summary_tokens", rgb_ref_num_summary_tokens)
+            rgb_ref_timestep = rgb_ref_config.get("timestep", rgb_ref_timestep)
 
             vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian", target_modules=target_modules_vae)
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
@@ -59,6 +68,10 @@ class S3Diff(torch.nn.Module):
 
             unet_lora_config = LoraConfig(r=lora_rank_unet, init_lora_weights="gaussian", target_modules=target_modules_unet)
             unet.add_adapter(unet_lora_config)
+            if enable_rgb_ref:
+                rgb_ref_blocks, rgb_ref_block_paths = install_unet_reference_fusion(
+                    unet, ref_unet, rgb_ref_bank, num_summary_tokens=rgb_ref_num_summary_tokens
+                )
             unet_state = unet.state_dict()
             unet_state.update(sd["state_dict_unet"])
             unet.load_state_dict(unet_state)
@@ -71,10 +84,6 @@ class S3Diff(torch.nn.Module):
             so_lrrb_num_layers_per_block = so_lrrb_config.get("num_layers_per_block", so_lrrb_num_layers_per_block)
             so_lrrb_residual_scale = so_lrrb_config.get("residual_scale", so_lrrb_residual_scale)
             so_lrrb_kappa = so_lrrb_config.get("kappa", so_lrrb_kappa)
-            enable_rgb_ref = sd.get("enable_rgb_ref", enable_rgb_ref)
-            rgb_ref_config = sd.get("rgb_ref_config", {})
-            rgb_ref_num_summary_tokens = rgb_ref_config.get("num_summary_tokens", rgb_ref_num_summary_tokens)
-            rgb_ref_timestep = rgb_ref_config.get("timestep", rgb_ref_timestep)
         else:
             print("Initializing model with standard LoRA weights")
             vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian", target_modules=target_modules_vae)
@@ -102,13 +111,12 @@ class S3Diff(torch.nn.Module):
 
         self.enable_rgb_ref = enable_rgb_ref
         self.rgb_ref_config = {"num_summary_tokens": rgb_ref_num_summary_tokens, "timestep": rgb_ref_timestep}
-        self.rgb_ref_bank = []
-        if enable_rgb_ref:
-            self.rgb_ref_blocks, self.rgb_ref_block_paths = install_unet_reference_fusion(
+        self.rgb_ref_bank = rgb_ref_bank
+        if enable_rgb_ref and not rgb_ref_blocks:
+            rgb_ref_blocks, rgb_ref_block_paths = install_unet_reference_fusion(
                 unet, ref_unet, self.rgb_ref_bank, num_summary_tokens=rgb_ref_num_summary_tokens
             )
-        else:
-            self.rgb_ref_blocks, self.rgb_ref_block_paths = [], []
+        self.rgb_ref_blocks, self.rgb_ref_block_paths = rgb_ref_blocks, rgb_ref_block_paths
         if pretrained_path is not None and self.rgb_ref_blocks and "state_dict_rgb_ref_blocks" in sd:
             block_states = sd["state_dict_rgb_ref_blocks"]
             for path, block in zip(self.rgb_ref_block_paths, self.rgb_ref_blocks):

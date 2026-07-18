@@ -34,7 +34,7 @@ def parse_args_paired_training(input_args=None):
     parser.add_argument("--neg_prob", default=0.05, type=float)
     parser.add_argument("--pos_prompt", type=str, default="high-resolution infrared thermal image, sharp thermal structures, clear object boundaries, fine texture details, low noise, natural thermal contrast, faithful spatial geometry")
     parser.add_argument("--neg_prompt", type=str, default=None)
-    parser.add_argument("--rarg_prompt", type=str, default="high-resolution visible light reference image, clear structural edges, accurate object contours, fine scene details, natural spatial layout, faithful geometry, useful guidance for thermal image super-resolution")
+    parser.add_argument("--rarg_prompt", type=str, default="high-resolution visible-light image, clear object boundaries, structural edges, scene layout, geometric contours, fine spatial details, natural perspective, possible slight viewpoint or alignment variation")
     parser.add_argument("--disable_solr", action="store_true")
     parser.add_argument("--solr_hidden_channels", type=int, default=64)
     parser.add_argument("--solr_growth_channels", type=int, default=32)

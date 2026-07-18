@@ -17,7 +17,7 @@ def parse_args_paired_training(input_args=None):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--lambda_l2", default=1.0, type=float)
-    parser.add_argument("--lambda_lpips", default=5.0, type=float)
+    parser.add_argument("--lambda_lpips", default=3.0, type=float)
     parser.add_argument("--lambda_dwt", default=1.0, type=float)
     parser.add_argument("--base_config", default="./configs/sr.yaml", type=str)
 
@@ -137,11 +137,11 @@ def _rgb_misalignment_augmentation(rgb):
 
     width, height = TF.get_image_size(rgb)
     translate = [
-        round(random.uniform(-0.02, 0.02) * width),
-        round(random.uniform(-0.02, 0.02) * height),
+        round(random.uniform(-0.03, 0.03) * width),
+        round(random.uniform(-0.03, 0.03) * height),
     ]
-    scale = random.uniform(0.95, 1.05)
-    angle = random.uniform(-3.0, 3.0)
+    scale = random.uniform(0.90, 1.10)
+    angle = random.uniform(-5.0, 5.0)
     if translate != [0, 0] or abs(scale - 1.0) > 1e-6 or abs(angle) > 1e-6:
         rgb = TF.affine(
             rgb,
@@ -153,8 +153,8 @@ def _rgb_misalignment_augmentation(rgb):
             fill=0,
         )
 
-    max_dx = round(0.03 * width / 2)
-    max_dy = round(0.03 * height / 2)
+    max_dx = round(0.05 * width / 2)
+    max_dy = round(0.05 * height / 2)
     if max_dx > 0 or max_dy > 0:
         startpoints = [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
         endpoints = [

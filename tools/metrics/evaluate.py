@@ -23,7 +23,7 @@ import torch
 from torchvision import transforms
 from tqdm import tqdm
 
-from rg_rmf.metrics import (
+from guidediisr_metrics.metrics import (
     THREE_MTI_FULL_METRICS,
     THREE_MTI_STYLE,
     THREE_MTI_TRAIN_METRICS,
@@ -41,7 +41,7 @@ def load_rgb_tensor(path: Path) -> torch.Tensor:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="3MTI-style full metrics for an existing prediction image folder.")
+    parser = argparse.ArgumentParser(description="GuidedIISR image-folder evaluation with the 3MTI-style metric protocol.")
     parser.add_argument("--pred-dir", required=True)
     parser.add_argument("--ref-dir", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -87,7 +87,7 @@ def main() -> None:
 
     rows = []
     with torch.no_grad():
-        for pred_path, ref_path in tqdm(pairs, desc=f"image-folder-{args.metrics}"):
+        for pred_path, ref_path in tqdm(pairs, desc=f"guidediisr-{args.metrics}"):
             pred = load_rgb_tensor(pred_path).unsqueeze(0).to(device)
             ref = load_rgb_tensor(ref_path).unsqueeze(0).to(device)
             row = {"name": pred_path.name}

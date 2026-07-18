@@ -103,9 +103,9 @@ pyiqa.create_metric("ssim", test_y_channel=True, color_space="ycbcr")
 To evaluate saved predictions:
 
 ```bash
-cd tools/metric_scripts_20260718/metric_scripts
+cd tools/metrics
 export PYTHONPATH="$PWD:${PYTHONPATH:-}"
-python scripts/eval_image_folder_3mti_style.py \
+python evaluate.py \
   --pred-dir /path/to/pred \
   --ref-dir /path/to/hr_thermal \
   --output-dir /path/to/metrics \

@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as TF
 from torch.utils import data as data
 
 
@@ -89,6 +91,50 @@ def _to_tensor(image):
     return torch.from_numpy(np.ascontiguousarray(image.transpose(2, 0, 1))).float()
 
 
+def _rgb_misalignment_augmentation(rgb):
+    """Apply 3MTI-style geometric misalignment to the visible reference only."""
+    if random.random() >= 0.4:
+        return rgb
+
+    width, height = TF.get_image_size(rgb)
+    translate = [
+        round(random.uniform(-0.02, 0.02) * width),
+        round(random.uniform(-0.02, 0.02) * height),
+    ]
+    scale = random.uniform(0.95, 1.05)
+    angle = random.uniform(-3.0, 3.0)
+    if translate != [0, 0] or abs(scale - 1.0) > 1e-6 or abs(angle) > 1e-6:
+        rgb = TF.affine(
+            rgb,
+            angle=angle,
+            translate=translate,
+            scale=scale,
+            shear=[0.0, 0.0],
+            interpolation=InterpolationMode.BILINEAR,
+            fill=0,
+        )
+
+    max_dx = round(0.03 * width / 2)
+    max_dy = round(0.03 * height / 2)
+    if max_dx > 0 or max_dy > 0:
+        startpoints = [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
+        endpoints = [
+            [random.randint(0, max_dx), random.randint(0, max_dy)],
+            [width - 1 - random.randint(0, max_dx), random.randint(0, max_dy)],
+            [width - 1 - random.randint(0, max_dx), height - 1 - random.randint(0, max_dy)],
+            [random.randint(0, max_dx), height - 1 - random.randint(0, max_dy)],
+        ]
+        rgb = TF.perspective(
+            rgb,
+            startpoints=startpoints,
+            endpoints=endpoints,
+            interpolation=InterpolationMode.BILINEAR,
+            fill=0,
+        )
+
+    return rgb
+
+
 class ThermalPairDataset(data.Dataset):
     """Read paired LR thermal, HR thermal, and optional HR visible reference images."""
 
@@ -149,7 +195,8 @@ class ThermalPairDataset(data.Dataset):
 
         sample = {"lr": _to_tensor(img_lr), "gt": _to_tensor(img_hr), "lr_path": lr_path, "gt_path": hr_path}
         if img_visible is not None:
-            sample["visible"] = _to_tensor(img_visible)
+            visible_tensor = _rgb_misalignment_augmentation(_to_tensor(img_visible))
+            sample["visible"] = visible_tensor
             sample["visible_path"] = visible_path
         return sample
 

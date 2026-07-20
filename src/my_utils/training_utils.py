@@ -17,7 +17,7 @@ def parse_args_paired_training(input_args=None):
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--lambda_l2", default=1.0, type=float)
-    parser.add_argument("--lambda_lpips", default=3.0, type=float)
+    parser.add_argument("--lambda_lpips", default=2.0, type=float)
     parser.add_argument("--lambda_dwt", default=1.0, type=float)
     parser.add_argument("--base_config", default="./configs/sr.yaml", type=str)
 
@@ -125,10 +125,8 @@ def _rgb_low_quality_augmentation(rgb):
 
 
 def _augment_visible_reference(rgb):
-    """Apply independent RGB-only reference augmentations used during training."""
-    rgb = _rgb_misalignment_augmentation(rgb)
-    rgb = _rgb_low_quality_augmentation(rgb)
-    return rgb
+    """Apply RGB-only geometric misalignment during training."""
+    return _rgb_misalignment_augmentation(rgb)
 
 def _rgb_misalignment_augmentation(rgb):
     """Apply 3MTI-style geometric misalignment to the visible reference only."""

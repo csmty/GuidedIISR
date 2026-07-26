@@ -124,9 +124,9 @@ def _rgb_low_quality_augmentation(rgb):
     return rgb.clamp(0.0, 1.0)
 
 
-def _augment_visible_reference(rgb):
-    """Apply RGB-only geometric misalignment during training."""
-    return _rgb_misalignment_augmentation(rgb)
+def _augment_visible_reference(rgb, use_misalign=True):
+    """Apply optional RGB-only geometric misalignment during training."""
+    return _rgb_misalignment_augmentation(rgb) if use_misalign else rgb
 
 def _rgb_misalignment_augmentation(rgb):
     """Apply 3MTI-style geometric misalignment to the visible reference only."""
@@ -184,6 +184,7 @@ class ThermalPairDataset(data.Dataset):
         self.crop_size = int(opt.get("crop_size", 512))
         self.use_hflip = bool(opt.get("use_hflip", True))
         self.use_rot = bool(opt.get("use_rot", False))
+        self.use_rgb_misalign = bool(opt.get("use_rgb_misalign", True))
 
         hr_by_name = {Path(p).name: p for p in _list_images(self.hr_root)}
         visible_by_name = {Path(p).name: p for p in _list_images(self.visible_root)} if self.visible_root is not None else {}
@@ -232,7 +233,7 @@ class ThermalPairDataset(data.Dataset):
 
         sample = {"lr": _to_tensor(img_lr), "gt": _to_tensor(img_hr), "lr_path": lr_path, "gt_path": hr_path}
         if img_visible is not None:
-            visible_tensor = _augment_visible_reference(_to_tensor(img_visible))
+            visible_tensor = _augment_visible_reference(_to_tensor(img_visible), self.use_rgb_misalign)
             sample["visible"] = visible_tensor
             sample["visible_path"] = visible_path
         return sample

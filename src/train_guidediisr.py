@@ -204,7 +204,7 @@ def main(args):
                         outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
                         accelerator.unwrap_model(net_sr).save_model(outf)
 
-                    if global_step % args.eval_freq == 1:
+                    if global_step == 1 or global_step % args.eval_freq == 0:
                         l_l2, l_lpips, l_dwt, l_psnr, l_ssim = [], [], [], [], []
                         metrics_rows = []
                         eval_dir = os.path.join(args.output_dir, "eval", f"step_{global_step:06d}")

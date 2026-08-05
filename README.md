@@ -8,23 +8,31 @@ The method uses a diffusion prior with LoRA tuning, SOLR (Second-Order Latent Re
 
 Download the released checkpoint from Google Drive:
 
-[GuidedIISR_model_48501.pkl](https://drive.google.com/file/d/1As26DtO9W07kB-J1FBZuCc8FsNzKmwlo/view?usp=sharing)
+[GuidedIISR_model_50000.pkl](https://drive.google.com/file/d/18FXSMYuXE9YYinX681SHofEVFxYOIffZ/view?usp=drive_link)
 
 Place it at:
 
 ```text
-checkpoints/GuidedIISR_model_48501.pkl
+checkpoints/GuidedIISR_model_50000.pkl
 ```
 
 Seed-42 test result on 1176 images with the 3MTI-style metric protocol:
 
 ```text
-PSNR: 30.33693
-SSIM: 0.86686
-LPIPS: 0.17128
-DISTS: 0.12327
-FID: 55.63
+PSNR: 26.62929
+SSIM: 0.79458
+LPIPS: 0.24495
+DISTS: 0.15955
 ```
+
+Subset results:
+
+| Subset | Images | PSNR | SSIM | LPIPS | DISTS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| IRVI | 300 | 28.23222 | 0.80825 | 0.21410 | 0.14194 |
+| LLVIP | 300 | 25.11422 | 0.78249 | 0.31453 | 0.17477 |
+| MF3D | 376 | 26.81190 | 0.80385 | 0.21131 | 0.16006 |
+| PBVS2025 | 200 | 26.15422 | 0.77478 | 0.25011 | 0.16216 |
 
 ## Environment
 
@@ -66,8 +74,8 @@ bash run_inference.sh
 Common overrides:
 
 ```bash
-PRETRAINED_PATH=/path/to/GuidedIISR_model_48501.pkl \
-OUTPUT_DIR=./output/inference/model_48501_seed42 \
+PRETRAINED_PATH=/path/to/GuidedIISR_model_50000.pkl \
+OUTPUT_DIR=./output/inference/model_50000_seed42 \
 SEED=42 \
 bash run_inference.sh
 ```
@@ -83,11 +91,12 @@ bash run_training.sh
 Current training defaults:
 
 ```text
-loss = 1.0 * L2 + 5.0 * LPIPS + 1.0 * DWT
+loss = 1.0 * L2 + 2.0 * LPIPS + 1.0 * DWT
 GAN loss = disabled
 gradient_accumulation_steps = 2
 seed = 42
 validation samples = 20
+RGB misalignment augmentation = enabled by default with 40% probability
 ```
 
 The RARG visible-reference VAE encoder and reference UNet are frozen. The thermal branch trains LoRA parameters, VAE encoder LoRA, input convolution, latent residual refinement, and reference-attention injection parameters.

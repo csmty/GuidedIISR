@@ -16,23 +16,15 @@ Place it at:
 checkpoints/GuidedIISR_model_50000.pkl
 ```
 
-Seed-42 test result on 1176 images with the 3MTI-style metric protocol:
+Seed-42 test result for the 8x super-resolution task on 1176 images with the 3MTI-style metric protocol:
 
 ```text
-PSNR: 26.62929
-SSIM: 0.79458
-LPIPS: 0.24495
-DISTS: 0.15955
+Step: 50000
+PSNR: 30.4669
+SSIM: 0.8671
+LPIPS: 0.1734
+DISTS: 0.1250
 ```
-
-Subset results:
-
-| Subset | Images | PSNR | SSIM | LPIPS | DISTS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| IRVI | 300 | 28.23222 | 0.80825 | 0.21410 | 0.14194 |
-| LLVIP | 300 | 25.11422 | 0.78249 | 0.31453 | 0.17477 |
-| MF3D | 376 | 26.81190 | 0.80385 | 0.21131 | 0.16006 |
-| PBVS2025 | 200 | 26.15422 | 0.77478 | 0.25011 | 0.16216 |
 
 ## Environment
 
